@@ -30,6 +30,11 @@ export function useSetTabCallback() {
   );
 }
 
+export function useBooted() {
+  const globalState = useGlobalState();
+  return globalState.isBooted;
+}
+
 export function useIsUnlocked() {
   const globalState = useGlobalState();
   return globalState.isUnlocked;
@@ -60,6 +65,26 @@ export function useCreateAccountCallback() {
   return useCallback(
     async (mnemonics: string, hdPath: string, passphrase: string, addressType: AddressType, accountCount: number) => {
       await wallet.createKeyringWithMnemonics(mnemonics, hdPath, passphrase, addressType, accountCount);
+      dispatch(globalActions.update({ isUnlocked: true }));
+    },
+    [dispatch, wallet]
+  );
+}
+
+export function useImportAccountsFromKeystoneCallback() {
+  const dispatch = useAppDispatch();
+  const wallet = useWallet();
+  return useCallback(
+    async (
+      urType: string,
+      urCbor: string,
+      addressType: AddressType,
+      accountCount: number,
+      hdPath: string,
+      filterPubkey?: string[],
+      connectionType: 'USB' | 'QR' = 'USB'
+    ) => {
+      await wallet.createKeyringWithKeystone(urType, urCbor, addressType, hdPath, accountCount, filterPubkey, connectionType);
       dispatch(globalActions.update({ isUnlocked: true }));
     },
     [dispatch, wallet]

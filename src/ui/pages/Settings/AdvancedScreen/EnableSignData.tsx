@@ -1,18 +1,17 @@
 import { Checkbox, Switch } from 'antd';
 import { useEffect, useState } from 'react';
 
-import { Button, Column, Content, Header, Icon, Layout, Row, Text } from '@/ui/components';
+import { Button, Card, Column, Icon, Row, Text } from '@/ui/components';
 import { Popover } from '@/ui/components/Popover';
-import { ColorTypes, colors } from '@/ui/theme/colors';
+import { colors } from '@/ui/theme/colors';
 import { useWallet } from '@/ui/utils';
 
-export default function AdvancedScreen() {
+export function EnableSignDataCard() {
   const wallet = useWallet();
   const [enableSignData, setEnableSignData] = useState(false);
 
   const [enableSignDataPopoverVisible, setEnableSignDataPopoverVisible] = useState(false);
 
-  const [init, setInit] = useState(false);
   useEffect(() => {
     wallet
       .getEnableSignData()
@@ -20,49 +19,40 @@ export default function AdvancedScreen() {
         setEnableSignData(v);
       })
       .finally(() => {
-        setInit(true);
+        // setInit(true);
       });
   }, []);
 
-  if (!init) {
-    return <Layout></Layout>;
-  }
-
   return (
-    <Layout>
-      <Header
-        onBack={() => {
-          window.history.go(-1);
-        }}
-        title="Advanced"
-      />
-      <Content>
-        <Column>
-          <Column>
-            <Text text={'signData requests'} preset="bold" size="md" />
-            <Row>
-              <Text
-                text={`If you enable this setting, you might get signature requests that aren't readable. By signing a message you don't understand, you could be agreeing to give away your funds and NFTs.You're at risk for phishing attacks. Protect yourself by turning off signData.`}
-              />
-            </Row>
+    <Card style={{ borderRadius: 10 }}>
+      <Column>
+        <Text text={'signData requests'} preset="bold" size="sm" />
+        <Row>
+          <Text
+            preset="sub"
+            size="sm"
+            text={`If you enable this setting, you might get signature requests that aren't readable. By signing a message you don't understand, you could be agreeing to give away your funds and NFTs.You're at risk for phishing attacks. Protect yourself by turning off signData.`}
+          />
+        </Row>
 
-            <Row itemsCenter>
-              <Switch
-                onChange={() => {
-                  if (enableSignData) {
-                    wallet.setEnableSignData(false).then(() => {
-                      setEnableSignData(false);
-                    });
-                  } else {
-                    setEnableSignDataPopoverVisible(true);
-                  }
-                }}
-                checked={enableSignData}></Switch>
-              {enableSignData ? <Text text={'ON (Not recommended)'} /> : <Text text={'OFF (Recommended)'} />}
-            </Row>
-          </Column>
-        </Column>
-      </Content>
+        <Row style={{ borderTopWidth: 1, borderColor: colors.border }} my="md" />
+
+        <Row justifyBetween>
+          <Text text={'Allow signData requests'} size="xs" />
+
+          <Switch
+            onChange={() => {
+              if (enableSignData) {
+                wallet.setEnableSignData(false).then(() => {
+                  setEnableSignData(false);
+                });
+              } else {
+                setEnableSignDataPopoverVisible(true);
+              }
+            }}
+            checked={enableSignData}></Switch>
+        </Row>
+      </Column>
       {enableSignDataPopoverVisible ? (
         <EnableSignDataPopover
           onNext={() => {
@@ -76,16 +66,10 @@ export default function AdvancedScreen() {
           }}
         />
       ) : null}
-    </Layout>
+    </Card>
   );
 }
-
-const riskColor: { [key: string]: ColorTypes } = {
-  high: 'danger',
-  low: 'orange'
-};
-
-export const EnableSignDataPopover = ({ onNext, onCancel }: { onNext: () => void; onCancel: () => void }) => {
+function EnableSignDataPopover({ onNext, onCancel }: { onNext: () => void; onCancel: () => void }) {
   const [understand, setUnderstand] = useState(false);
   return (
     <Popover onClose={onCancel}>
@@ -150,4 +134,4 @@ export const EnableSignDataPopover = ({ onNext, onCancel }: { onNext: () => void
       </Column>
     </Popover>
   );
-};
+}

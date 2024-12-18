@@ -1,5 +1,119 @@
 # UniSat Wallet Release Notes
 
+## v1.5.2
+
+- Added display of USD prices for FB, BRC20, Runes, CAT20 in fractal
+- New discovery page
+- Fix the issue where signing individually in a batch may result in a 'network not match' error.
+
+## v1.5.1
+
+- During batch signing, for whitelisted websites, one-click signing is allowed.
+- Merged keystone's PR, supports USB mode.
+- Added the optional parameter useTweakedSigner to the methods signPsbt/signPsbts. This allows for the use of a tweaked signer to sign non-Taproot addresses, which is required for CAT721's lock to mint.
+- When switching wallets and switching accounts, it will automatically scroll to the corresponding row and display the scrollbar.
+
+## v1.5.0
+
+- Support CAT20
+
+## v1.4.10
+
+- Add address tips. (It is not recommended to use legacy addresses on Fractal.)
+
+## v1.4.9
+
+- Display short names for bool bridge and simple bridge ticks
+- Support for .fb domain on fractal
+- Fix the issue where batch signing PSBT can get stuck when there are too many transactions
+- Fix fractal browser link.
+
+## v1.4.8
+
+- Allow passing in tapLeafHashToSign when calling signPsbt
+
+## v1.4.7
+
+- Remove the maximum fee rate limit
+
+## v1.4.6
+
+- Enable Fractal Bitcoin Mainnet
+- Fix Address QRCode
+
+## v1.4.5
+
+- Add Fractal Bitcoin Testnet
+- Add password strength detection.
+- Add automatic lock time in Advanced
+- Fix `networkChanged` for issue#211
+- Add `unisat.disconnect` for issue#204
+
+## v1.4.2
+
+- Support Testnet4
+- Support Signet
+- Fixed the issue of the app crashing when transferring Runes with multiple UTXOs
+- Fixed the issue with the display of the available balance of partially-colored funds during an ARC20 transfer
+- Fixed the issue with the incorrect display of HdPath in Keystone
+- Audit fix: Removed private methods from the browser plugin object to enhance security
+- Audit fix: Methods such as getPublicKey, getNetwork, switchNetwork are now only accessible after authorization for improved security.
+
+## v1.4.1
+
+- Support for setting transfer fees with one decimal place
+- Added display of USD prices for BTC、BRC20 and Runes
+- Real-time fee displays for various buy BTC options
+- Fix unisat.sendRunes
+- Fix unisat.multiSginPsbt
+
+## v1.4.0
+
+- Support fractalbitcoin
+
+## v1.3.4
+
+- Compatible with partial token coloring for ARC20
+
+## v1.3.3
+
+- Support keystone
+
+## v1.3.2
+
+- Support cursed inscription
+- Optimized the UTXO selection strategy of runes to reduce gas fees
+- Add runes logo
+- Add Alichepay
+- Fix Runes details
+
+## v1.3.1
+
+- Fixed the bug of runes constructing a burn transaction
+- Fixed the bug of "can not convert 1+21 to bigint" appearing during transfer
+
+## v1.3.0
+
+- Support Runes
+- Add a toggle for enabling unconfirmed balances.
+- No longer forcing pop-up warnings for transactions with high or low fee rates.
+- Reverted the default inscribe outputValue to 546 sats for simplified operations.
+- Fix MultiSignPsbt
+
+## v1.2.10
+
+- Support 5-byte BRC20
+- Improve the display of BRC20
+
+## v1.2.9
+
+- Added `memos` parameter to `unisat.sendBitcoin` method, for constructing runes transactions (github #164 and #167)
+- Fixed a bug in the `unisat.sendInscription` method (github #159)
+- Fixed the problem where an order could not succeed when the wallet balance and the payment amount were exactly equal when inscribe a TRANSFER inscription
+- Improved balance display, showing both available and unavailable balances
+- Improved the asset display during transaction signing, added BRC20 display
+- Improved risk warnings during transaction signing, and now requires the input of CONFIRM to proceed when warnings appear.
+
 ## v1.2.8
 
 - The unisat.sendBitcoin method has added a memo parameter, increasing OP_RETURN output when sending btc.

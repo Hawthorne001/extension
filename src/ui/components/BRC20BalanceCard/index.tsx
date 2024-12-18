@@ -5,6 +5,7 @@ import { colors } from '@/ui/theme/colors';
 import { fontSizes } from '@/ui/theme/font';
 import { InfoCircleOutlined } from '@ant-design/icons';
 
+import { BRC20Ticker } from '../BRC20Ticker';
 import { Card } from '../Card';
 import { Column } from '../Column';
 import { Row } from '../Row';
@@ -23,7 +24,8 @@ export default function BRC20BalanceCard(props: BRC20BalanceCardProps) {
       transferableBalance,
       availableBalance,
       availableBalanceSafe,
-      availableBalanceUnSafe
+      availableBalanceUnSafe,
+      displayName
     },
     onClick
   } = props;
@@ -39,7 +41,7 @@ export default function BRC20BalanceCard(props: BRC20BalanceCardProps) {
       onClick={onClick}>
       <Column full>
         <Row justifyBetween itemsCenter>
-          <Text text={ticker} color="gold" />
+          <BRC20Ticker tick={ticker} displayName={displayName} />
           <Tooltip
             title="The transferable amount is the balance that has been inscribed into transfer inscriptions but has not yet been sent."
             overlayStyle={{

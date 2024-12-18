@@ -14,7 +14,7 @@ import {
   usePrepareSendArc20Callback
 } from '@/ui/state/transactions/hooks';
 import { colors } from '@/ui/theme/colors';
-import { isValidAddress } from '@/ui/utils';
+import { isValidAddress, showLongNumber } from '@/ui/utils';
 import { getAddressUtxoDust } from '@unisat/wallet-sdk/lib/transaction';
 
 export default function SendArc20Screen() {
@@ -44,13 +44,20 @@ export default function SendArc20Screen() {
   const fetchUtxos = useFetchUtxosCallback();
   const fetchAssetUtxosAtomicalsFT = useFetchAssetUtxosAtomicalsFTCallback();
 
+  const [arc20AvailableBalance, setArc20AvailableBalance] = useState(0);
+
   const tools = useTools();
   useEffect(() => {
     fetchUtxos();
     tools.showLoading(true);
-    fetchAssetUtxosAtomicalsFT(arc20Balance.ticker).finally(() => {
-      tools.showLoading(false);
-    });
+    fetchAssetUtxosAtomicalsFT(arc20Balance.ticker)
+      .then((utxos) => {
+        const available = utxos.reduce((pre, cur) => pre + cur.atomicals.reduce((p, c) => p + (c?.atomicalValue || 0), 0), 0);
+        setArc20AvailableBalance(available);
+      })
+      .finally(() => {
+        tools.showLoading(false);
+      });
   }, []);
 
   const prepareSendArc20 = usePrepareSendArc20Callback();
@@ -126,7 +133,8 @@ export default function SendArc20Screen() {
       />
       <Content>
         <Row justifyCenter>
-          <Text text={`${arc20Balance.balance} ${arc20Balance.ticker}`} preset="bold" textCenter size="xxl" />
+          <Text text={`${showLongNumber(arc20Balance.balance)} ${arc20Balance.ticker}`} preset="bold" textCenter
+                size="xxl" />
         </Row>
 
         <Column mt="lg">
@@ -145,17 +153,17 @@ export default function SendArc20Screen() {
           <Row justifyBetween>
             <Text text="Balance" color="textDim" />
             <Row
+              itemsCenter
               onClick={() => {
-                setInputAmount(arc20Balance.balance.toString());
+                setInputAmount(arc20AvailableBalance.toString());
               }}>
               <Text text="MAX" preset="sub" style={{ color: colors.white_muted }} />
-              <Text text={`${arc20Balance.balance} ${arc20Balance.ticker}`} preset="bold" size="sm" />
+              <Text text={`${showLongNumber(arc20AvailableBalance)} ${arc20Balance.ticker}`} preset="bold" size="sm" />
             </Row>
           </Row>
           <Input
             preset="amount"
             placeholder={'Amount'}
-            defaultValue={inputAmount.toString()}
             value={inputAmount.toString()}
             onAmountInputChange={(amount) => {
               setInputAmount(amount);

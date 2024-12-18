@@ -3,7 +3,7 @@ import { HashRouter, Route, Routes, useNavigate as useNavigateOrigin } from 'rea
 
 import { LoadingOutlined } from '@ant-design/icons';
 
-import { Content, Icon, Layout } from '../components';
+import { Content, Icon } from '../components';
 import { accountActions } from '../state/accounts/reducer';
 import { useIsReady, useIsUnlocked } from '../state/global/hooks';
 import { globalActions } from '../state/global/reducer';
@@ -13,6 +13,7 @@ import { useWallet } from '../utils';
 import AddKeyringScreen from './Account/AddKeyringScreen';
 import CreateAccountScreen from './Account/CreateAccountScreen';
 import CreateHDWalletScreen from './Account/CreateHDWalletScreen';
+import CreateKeystoneWalletScreen from './Account/CreateKeystoneWalletScreen';
 import CreatePasswordScreen from './Account/CreatePasswordScreen';
 import CreateSimpleWalletScreen from './Account/CreateSimpleWalletScreen';
 import SwitchAccountScreen from './Account/SwitchAccountScreen';
@@ -26,6 +27,10 @@ import SendArc20Screen from './Atomicals/SendArc20Screen';
 import SendAtomicalsInscriptionScreen from './Atomicals/SendAtomicalsNFTScreen';
 import BRC20SendScreen from './BRC20/BRC20SendScreen';
 import BRC20TokenScreen from './BRC20/BRC20TokenScreen';
+import CAT20TokenScreen from './CAT20/CAT20TokenScreen';
+import MergeCAT20HistoryScreen from './CAT20/MergeCAT20HistoryScreen';
+import MergeCAT20Screen from './CAT20/MergeCAT20Screen';
+import SendCAT20Screen from './CAT20/SendCAT20Screen';
 import AppTabScrren from './Main/AppTabScreen';
 import BoostScreen from './Main/BoostScreen';
 import DiscoverTabScreen from './Main/DiscoverTabScreen';
@@ -36,6 +41,8 @@ import OrdinalsInscriptionScreen from './Ordinals/OrdinalsInscriptionScreen';
 import SendOrdinalsInscriptionScreen from './Ordinals/SendOrdinalsInscriptionScreen';
 import SignOrdinalsTransactionScreen from './Ordinals/SignOrdinalsTransactionScreen';
 import SplitOrdinalsInscriptionScreen from './Ordinals/SplitOrdinalsInscriptionScreen';
+import RunesTokenScreen from './Runes/RunesTokenScreen';
+import SendRunesScreen from './Runes/SendRunesScreen';
 import AddressTypeScreen from './Settings/AddressTypeScreen';
 import AdvancedScreen from './Settings/AdvancedScreen';
 import ChangePasswordScreen from './Settings/ChangePasswordScreen';
@@ -47,15 +54,15 @@ import NetworkTypeScreen from './Settings/NetworkTypeScreen';
 import UpgradeNoticeScreen from './Settings/UpgradeNoticeScreen';
 import TestScreen from './Test/TestScreen';
 import HistoryScreen from './Wallet/HistoryScreen';
-import MoonPayScreen from './Wallet/MoonPayScreen';
 import ReceiveScreen from './Wallet/ReceiveScreen';
 import TxConfirmScreen from './Wallet/TxConfirmScreen';
 import TxCreateScreen from './Wallet/TxCreateScreen';
 import TxFailScreen from './Wallet/TxFailScreen';
 import TxSuccessScreen from './Wallet/TxSuccessScreen';
+import UnavailableUtxoScreen from './Wallet/UnavailableUtxoScreen';
 import './index.module.less';
 
-const routes = {
+export const routes = {
   BoostScreen: {
     path: '/',
     element: <BoostScreen />
@@ -200,6 +207,10 @@ const routes = {
     path: '/account/create-simple-wallet',
     element: <CreateSimpleWalletScreen />
   },
+  CreateKeystoneWalletScreen: {
+    path: '/account/create-keystone-wallet',
+    element: <CreateKeystoneWalletScreen />
+  },
   UpgradeNoticeScreen: {
     path: '/settings/upgrade-notice',
     element: <UpgradeNoticeScreen />
@@ -228,13 +239,39 @@ const routes = {
     path: '/test',
     element: <TestScreen />
   },
-  MoonPayScreen: {
-    path: '/moonpay',
-    element: <MoonPayScreen />
-  },
   SplitOrdinalsInscriptionScreen: {
     path: '/wallet/split-tx/create',
     element: <SplitOrdinalsInscriptionScreen />
+  },
+  UnavailableUtxoScreen: {
+    path: '/wallet/unavailable-utxo',
+    element: <UnavailableUtxoScreen />
+  },
+
+  SendRunesScreen: {
+    path: '/runes/send-runes',
+    element: <SendRunesScreen />
+  },
+  RunesTokenScreen: {
+    path: '/runes/token',
+    element: <RunesTokenScreen />
+  },
+
+  CAT20TokenScreen: {
+    path: '/cat20/token',
+    element: <CAT20TokenScreen />
+  },
+  SendCAT20Screen: {
+    path: '/cat20/send-cat20',
+    element: <SendCAT20Screen />
+  },
+  MergeCAT20Screen: {
+    path: '/cat20/merge-cat20',
+    element: <MergeCAT20Screen />
+  },
+  MergeCAT20HistoryScreen: {
+    path: '/cat20/merge-history',
+    element: <MergeCAT20HistoryScreen />
   }
 };
 
@@ -281,10 +318,10 @@ const Main = () => {
       }
 
       if (!self.settingsLoaded) {
-        const networkType = await wallet.getNetworkType();
+        const chainType = await wallet.getChainType();
         dispatch(
           settingsActions.updateSettings({
-            networkType
+            chainType
           })
         );
 
@@ -294,22 +331,37 @@ const Main = () => {
       }
 
       if (!self.summaryLoaded) {
-        wallet.getInscriptionSummary().then((data) => {
-          dispatch(accountActions.setInscriptionSummary(data));
-        });
+        // wallet.getInscriptionSummary().then((data) => {
+        //   dispatch(accountActions.setInscriptionSummary(data));
+        // });
 
-        wallet.getAppSummary().then((data) => {
-          dispatch(accountActions.setAppSummary(data));
-        });
+        // wallet.getAppSummary().then((data) => {
+        //   dispatch(accountActions.setAppSummary(data));
+        // });
+
+        // wallet.getBannerList().then((data) => {
+        //   dispatch(accountActions.setBannerList(data));
+        // });
+
+        // wallet.getAppList().then((data) => {
+        //   dispatch(accountActions.setAppList(data));
+        // });
         self.summaryLoaded = true;
       }
 
       if (!self.configLoaded) {
-        wallet.getWalletConfig().then((data) => {
-          dispatch(settingsActions.updateSettings({ walletConfig: data }));
-        });
+        self.configLoaded = true;
+
+        // already load when reloadAccounts
+        // wallet.getWalletConfig().then((data) => {
+        //   dispatch(settingsActions.updateSettings({ walletConfig: data }));
+        // });
         wallet.getSkippedVersion().then((data) => {
           dispatch(settingsActions.updateSettings({ skippedVersion: data }));
+        });
+
+        wallet.getAutoLockTimeId().then((data) => {
+          dispatch(settingsActions.updateSettings({ autoLockTimeId: data }));
         });
       }
 
@@ -322,12 +374,9 @@ const Main = () => {
   useEffect(() => {
     wallet.hasVault().then((val) => {
       if (val) {
+        dispatch(globalActions.update({ isBooted: true }));
         wallet.isUnlocked().then((isUnlocked) => {
           dispatch(globalActions.update({ isUnlocked }));
-          if (!isUnlocked && location.href.includes(routes.UnlockScreen.path) === false) {
-            const basePath = location.href.split('#')[0];
-            location.href = `${basePath}#${routes.UnlockScreen.path}`;
-          }
         });
       }
     });
@@ -339,15 +388,24 @@ const Main = () => {
 
   if (!isReady) {
     return (
-      <Layout>
+      <div
+        style={{
+          display: 'flex',
+          flexDirection: 'column',
+          width: '100vw',
+          height: '100vh',
+          overflowY: 'auto',
+          overflowX: 'hidden'
+        }}>
         <Content justifyCenter itemsCenter>
           <Icon>
             <LoadingOutlined />
           </Icon>
         </Content>
-      </Layout>
+      </div>
     );
   }
+
   return (
     <HashRouter>
       <Routes>

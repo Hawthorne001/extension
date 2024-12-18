@@ -1,20 +1,22 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
-import { ADDRESS_TYPES, DISCORD_URL, GITHUB_URL, KEYRING_TYPE, NETWORK_TYPES, TWITTER_URL } from '@/shared/constant';
+import { ADDRESS_TYPES, DISCORD_URL, GITHUB_URL, KEYRING_TYPE, TELEGRAM_URL, TWITTER_URL } from '@/shared/constant';
 import { Card, Column, Content, Footer, Header, Layout, Row, Text } from '@/ui/components';
 import { useTools } from '@/ui/components/ActionComponent';
 import { Button } from '@/ui/components/Button';
 import { Icon } from '@/ui/components/Icon';
 import { NavTabBar } from '@/ui/components/NavTabBar';
+import { SwitchNetworkBar } from '@/ui/components/SwitchNetworkBar';
 import { getCurrentTab, useExtensionIsInTab, useOpenExtensionInTab } from '@/ui/features/browser/tabs';
 import { useCurrentAccount } from '@/ui/state/accounts/hooks';
 import { useCurrentKeyring } from '@/ui/state/keyrings/hooks';
-import { useNetworkType, useVersionInfo } from '@/ui/state/settings/hooks';
+import { useChain, useVersionInfo } from '@/ui/state/settings/hooks';
 import { fontSizes } from '@/ui/theme/font';
 import { spacing } from '@/ui/theme/spacing';
 import { useWallet } from '@/ui/utils';
-import { RightOutlined } from '@ant-design/icons';
+
+import { SwitchChainModal } from '../Settings/SwitchChainModal';
 
 interface Setting {
   label?: string;
@@ -99,8 +101,7 @@ const SettingList: Setting[] = [
 
 export default function SettingsTabScreen() {
   const navigate = useNavigate();
-
-  const networkType = useNetworkType();
+  const chain = useChain();
 
   const isInTab = useExtensionIsInTab();
 
@@ -110,13 +111,24 @@ export default function SettingsTabScreen() {
   const currentAccount = useCurrentAccount();
   const versionInfo = useVersionInfo();
   const wallet = useWallet();
+
+  const [switchChainModalVisible, setSwitchChainModalVisible] = useState(false);
+
   useEffect(() => {
     const run = async () => {
       const res = await getCurrentTab();
-      if (!res) return;
-      const site = await wallet.getCurrentConnectedSite(res.id);
-      if (site) {
-        setConnected(site.isConnected);
+      if (!res || !res.url) return;
+
+      const origin = new URL(res.url).origin;
+
+      if (origin === 'https://unisat.io') {
+        setConnected(true);
+      } else {
+        const sites = await wallet.getConnectedSites();
+
+        if (sites.find((i) => i.origin === origin)) {
+          setConnected(true);
+        }
       }
     };
     run();
@@ -137,7 +149,7 @@ export default function SettingsTabScreen() {
     }
 
     if (v.action == 'networkType') {
-      v.value = NETWORK_TYPES[networkType].label;
+      v.value = chain.label;
     }
 
     if (v.action == 'addressType') {
@@ -164,49 +176,58 @@ export default function SettingsTabScreen() {
 
   return (
     <Layout>
-      <Header />
+      <Header
+        type="style2"
+        LeftComponent={
+          <Row>
+            <Text preset="title-bold" text={'Settings'} />
+          </Row>
+        }
+        RightComponent={<SwitchNetworkBar />}
+      />
       <Content>
         <Column>
           <div>
             {toRenderSettings.map((item) => {
+              const onClick = () => {
+                if (item.action == 'expand-view') {
+                  openExtensionInTab();
+                  return;
+                }
+                if (item.action == 'lock-wallet') {
+                  wallet.lockWallet();
+                  navigate('/account/unlock');
+                  return;
+                }
+
+                if (item.action == 'networkType') {
+                  setSwitchChainModalVisible(true);
+                  return;
+                }
+                if (item.action == 'addressType') {
+                  if (isCustomHdPath) {
+                    tools.showTip(
+                      'The wallet currently uses a custom HD path and does not support switching address types.'
+                    );
+                    return;
+                  }
+                  navigate('/settings/address-type');
+                  return;
+                }
+                navigate(item.route);
+              };
               if (!item.label) {
                 return (
                   <Button
                     key={item.action}
                     style={{ marginTop: spacing.small, height: 50 }}
                     text={item.desc}
-                    onClick={(e) => {
-                      if (item.action == 'expand-view') {
-                        openExtensionInTab();
-                        return;
-                      }
-                      if (item.action == 'lock-wallet') {
-                        wallet.lockWallet();
-                        navigate('/account/unlock');
-                        return;
-                      }
-                      navigate(item.route);
-                    }}
+                    onClick={onClick}
                   />
                 );
               }
               return (
-                <Card
-                  key={item.action}
-                  mt="lg"
-                  onClick={(e) => {
-                    if (item.action == 'addressType') {
-                      if (isCustomHdPath) {
-                        tools.showTip(
-                          'The wallet currently uses a custom HD path and does not support switching address types.'
-                        );
-                        return;
-                      }
-                      navigate('/settings/address-type');
-                      return;
-                    }
-                    navigate(item.route);
-                  }}>
+                <Card key={item.action} mt="lg" onClick={onClick}>
                   <Row full justifyBetween>
                     <Column justifyCenter>
                       <Text text={item.label || item.desc} preset="regular-bold" />
@@ -214,7 +235,7 @@ export default function SettingsTabScreen() {
                     </Column>
 
                     <Column justifyCenter>
-                      {item.right && <RightOutlined style={{ transform: 'scale(1.2)', color: '#AAA' }} />}
+                      {item.right && <Icon icon="right" size={fontSizes.lg} color="textDim" />}
                     </Column>
                   </Row>
                 </Card>
@@ -248,6 +269,15 @@ export default function SettingsTabScreen() {
                 window.open(GITHUB_URL);
               }}
             />
+
+            <Icon
+              icon="telegram"
+              size={fontSizes.iconMiddle}
+              color="textDim"
+              onClick={() => {
+                window.open(TELEGRAM_URL);
+              }}
+            />
           </Row>
           <Text text={`Version: ${versionInfo.currentVesion}`} preset="sub" textCenter />
           {versionInfo.latestVersion && (
@@ -262,6 +292,14 @@ export default function SettingsTabScreen() {
             />
           )}
         </Column>
+
+        {switchChainModalVisible && (
+          <SwitchChainModal
+            onClose={() => {
+              setSwitchChainModalVisible(false);
+            }}
+          />
+        )}
       </Content>
       <Footer px="zero" py="zero">
         <NavTabBar tab="settings" />

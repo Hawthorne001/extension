@@ -53,8 +53,12 @@ const flowContext = flow
       },
       mapMethod
     } = ctx;
-    if (!Reflect.getMetadata('SAFE', providerController, mapMethod)) {
+    // if (!Reflect.getMetadata('SAFE', providerController, mapMethod)) {
+    if(!['getNetwork','switchNetwork','getChain','switchChain'].includes(mapMethod)){
       if (!permissionService.hasPermission(origin)) {
+        if (['getAccounts'].includes(mapMethod)) {
+          return [];
+        }
         ctx.request.requestedApproval = true;
         await notificationService.requestApproval(
           {
@@ -83,7 +87,7 @@ const flowContext = flow
       mapMethod
     } = ctx;
     const [approvalType, condition, options = {}] =
-      Reflect.getMetadata('APPROVAL', providerController, mapMethod) || [];
+    Reflect.getMetadata('APPROVAL', providerController, mapMethod) || [];
 
     if (approvalType && (!condition || !condition(ctx.request))) {
       ctx.request.requestedApproval = true;
@@ -148,6 +152,7 @@ const flowContext = flow
           });
         }
       });
+
     async function requestApprovalLoop({ uiRequestComponent, ...rest }) {
       ctx.request.requestedApproval = true;
       const res = await notificationService.requestApproval({
@@ -162,6 +167,7 @@ const flowContext = flow
         return res;
       }
     }
+
     if (uiRequestComponent) {
       ctx.request.requestedApproval = true;
       return await requestApprovalLoop({ uiRequestComponent, ...rest });

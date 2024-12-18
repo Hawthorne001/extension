@@ -1,8 +1,11 @@
 import { useCallback, useMemo } from 'react';
 
+import { CHAINS_MAP, ChainType, KEYRING_TYPE } from '@/shared/constant';
 import { RawTxInfo, ToAddressInfo } from '@/shared/types';
 import { useTools } from '@/ui/components/ActionComponent';
+import { useBTCUnit } from '@/ui/state/settings/hooks';
 import { satoshisToAmount, satoshisToBTC, sleep, useWallet } from '@/ui/utils';
+import { UnspentOutput } from '@unisat/wallet-sdk';
 import { bitcoin } from '@unisat/wallet-sdk/lib/bitcoin-core';
 
 import { AppState } from '..';
@@ -10,6 +13,12 @@ import { useAccountAddress, useCurrentAccount } from '../accounts/hooks';
 import { accountActions } from '../accounts/reducer';
 import { useAppDispatch, useAppSelector } from '../hooks';
 import { transactionsActions } from './reducer';
+
+
+function isFBByUnit (btcUnit: string ) {
+  return btcUnit === CHAINS_MAP[ChainType.FRACTAL_BITCOIN_MAINNET].unit || btcUnit === CHAINS_MAP[ChainType.FRACTAL_BITCOIN_TESTNET].unit
+}
+
 
 export function useTransactionsState(): AppState['transactions'] {
   return useAppSelector((state) => state.transactions);
@@ -25,22 +34,33 @@ export function usePrepareSendBTCCallback() {
   const wallet = useWallet();
   const fromAddress = useAccountAddress();
   const utxos = useUtxos();
+  const spendUnavailableUtxos = useSpendUnavailableUtxos();
   const fetchUtxos = useFetchUtxosCallback();
+  const account = useCurrentAccount();
+  const btcUnit = useBTCUnit();
   return useCallback(
     async ({
       toAddressInfo,
       toAmount,
       feeRate,
       enableRBF,
-      memo
+      memo,
+      memos,
+      disableAutoAdjust
     }: {
       toAddressInfo: ToAddressInfo;
       toAmount: number;
       feeRate?: number;
       enableRBF: boolean;
       memo?: string;
+      memos?: string[];
+      disableAutoAdjust?: boolean;
     }) => {
-      let _utxos = utxos;
+      let _utxos: UnspentOutput[] = (
+        spendUnavailableUtxos.map((v) => {
+          return Object.assign({}, v, { inscriptions: [], atomicals: [] });
+        }) as any
+      ).concat(utxos);
       if (_utxos.length === 0) {
         _utxos = await fetchUtxos();
       }
@@ -49,7 +69,7 @@ export function usePrepareSendBTCCallback() {
         throw new Error(
           `Insufficient balance. Non-Inscription balance(${satoshisToAmount(
             safeBalance
-          )} BTC) is lower than ${satoshisToAmount(toAmount)} BTC `
+          )} ${btcUnit}) is lower than ${satoshisToAmount(toAmount)} ${btcUnit} `
         );
       }
 
@@ -59,7 +79,7 @@ export function usePrepareSendBTCCallback() {
       }
       let psbtHex = '';
 
-      if (safeBalance === toAmount) {
+      if (safeBalance === toAmount && !disableAutoAdjust) {
         psbtHex = await wallet.sendAllBTC({
           to: toAddressInfo.address,
           btcUtxos: _utxos,
@@ -73,13 +93,24 @@ export function usePrepareSendBTCCallback() {
           btcUtxos: _utxos,
           enableRBF,
           feeRate,
-          memo
+          memo,
+          memos
         });
       }
 
       const psbt = bitcoin.Psbt.fromHex(psbtHex);
-      const rawtx = psbt.extractTransaction().toHex();
-      const fee = psbt.getFee();
+      // use the unknown keyValue to indicate FB tx in psbt for keystone 
+      if(isFBByUnit(btcUnit) && account.type === KEYRING_TYPE.KeystoneKeyring) {
+        const keysString = "chain";
+        // use ff as the keyType in the psbt global unknown
+        const key = Buffer.concat([Buffer.from('ff', 'hex'), Buffer.from(keysString)])
+        psbt.addUnknownKeyValToGlobal({key, value: Buffer.from(btcUnit.toLowerCase())})
+        psbtHex  = psbt.toHex();
+      }
+
+      const rawtx = account.type === KEYRING_TYPE.KeystoneKeyring ? '' : psbt.extractTransaction(true).toHex();
+      const fee = account.type === KEYRING_TYPE.KeystoneKeyring ? 0 : psbt.getFee();
+      
       dispatch(
         transactionsActions.updateBitcoinTx({
           rawtx,
@@ -97,7 +128,7 @@ export function usePrepareSendBTCCallback() {
       };
       return rawTxInfo;
     },
-    [dispatch, wallet, fromAddress, utxos, fetchUtxos]
+    [dispatch, wallet, fromAddress, utxos, fetchUtxos, spendUnavailableUtxos]
   );
 }
 
@@ -150,6 +181,7 @@ export function usePrepareSendOrdinalsInscriptionCallback() {
   const fromAddress = useAccountAddress();
   const utxos = useUtxos();
   const fetchUtxos = useFetchUtxosCallback();
+  const account = useCurrentAccount();
   return useCallback(
     async ({
       toAddressInfo,
@@ -160,10 +192,15 @@ export function usePrepareSendOrdinalsInscriptionCallback() {
     }: {
       toAddressInfo: ToAddressInfo;
       inscriptionId: string;
-      feeRate: number;
-      outputValue: number;
+      feeRate?: number;
+      outputValue?: number;
       enableRBF: boolean;
     }) => {
+      if (!feeRate) {
+        const summary = await wallet.getFeeSummary();
+        feeRate = summary.list[1].feeRate;
+      }
+
       let btcUtxos = utxos;
       if (btcUtxos.length === 0) {
         btcUtxos = await fetchUtxos();
@@ -178,7 +215,7 @@ export function usePrepareSendOrdinalsInscriptionCallback() {
         btcUtxos
       });
       const psbt = bitcoin.Psbt.fromHex(psbtHex);
-      const rawtx = psbt.extractTransaction().toHex();
+      const rawtx = account.type === KEYRING_TYPE.KeystoneKeyring ? '' : psbt.extractTransaction(true).toHex();
       dispatch(
         transactionsActions.updateOrdinalsTx({
           rawtx,
@@ -207,6 +244,7 @@ export function usePrepareSendOrdinalsInscriptionsCallback() {
   const fromAddress = useAccountAddress();
   const fetchUtxos = useFetchUtxosCallback();
   const utxos = useUtxos();
+  const account = useCurrentAccount();
   return useCallback(
     async ({
       toAddressInfo,
@@ -236,7 +274,7 @@ export function usePrepareSendOrdinalsInscriptionsCallback() {
         btcUtxos
       });
       const psbt = bitcoin.Psbt.fromHex(psbtHex);
-      const rawtx = psbt.extractTransaction().toHex();
+      const rawtx = account.type === KEYRING_TYPE.KeystoneKeyring ? '' : psbt.extractTransaction(true).toHex();
       dispatch(
         transactionsActions.updateOrdinalsTx({
           rawtx,
@@ -263,6 +301,7 @@ export function useCreateSplitTxCallback() {
   const fromAddress = useAccountAddress();
   const utxos = useUtxos();
   const fetchUtxos = useFetchUtxosCallback();
+  const account = useCurrentAccount();
   return useCallback(
     async ({
       inscriptionId,
@@ -288,7 +327,7 @@ export function useCreateSplitTxCallback() {
         btcUtxos
       });
       const psbt = bitcoin.Psbt.fromHex(psbtHex);
-      const rawtx = psbt.extractTransaction().toHex();
+      const rawtx = account.type === KEYRING_TYPE.KeystoneKeyring ? '' : psbt.extractTransaction(true).toHex();
       dispatch(
         transactionsActions.updateOrdinalsTx({
           rawtx,
@@ -369,6 +408,21 @@ export function useFetchUtxosCallback() {
   }, [wallet, account]);
 }
 
+export function useSpendUnavailableUtxos() {
+  const transactionsState = useTransactionsState();
+  return transactionsState.spendUnavailableUtxos;
+}
+
+export function useSetSpendUnavailableUtxosCallback() {
+  const dispatch = useAppDispatch();
+  return useCallback(
+    (utxos: UnspentOutput[]) => {
+      dispatch(transactionsActions.setSpendUnavailableUtxos(utxos));
+    },
+    [dispatch]
+  );
+}
+
 export function useAssetUtxosAtomicalsFT() {
   const transactionsState = useTransactionsState();
   return transactionsState.assetUtxos_atomicals_ft;
@@ -402,6 +456,7 @@ export function usePrepareSendAtomicalsNFTCallback() {
   const fromAddress = useAccountAddress();
   const utxos = useUtxos();
   const fetchUtxos = useFetchUtxosCallback();
+  const account = useCurrentAccount();
   return useCallback(
     async ({
       toAddressInfo,
@@ -427,7 +482,7 @@ export function usePrepareSendAtomicalsNFTCallback() {
         btcUtxos
       });
       const psbt = bitcoin.Psbt.fromHex(psbtHex);
-      const rawtx = psbt.extractTransaction().toHex();
+      const rawtx = account.type === KEYRING_TYPE.KeystoneKeyring ? '' : psbt.extractTransaction(true).toHex();
       dispatch(
         transactionsActions.updateAtomicalsTx({
           rawtx,
@@ -497,6 +552,7 @@ export function usePrepareSendArc20Callback() {
   const fetchUtxos = useFetchUtxosCallback();
   const fetchAssetUtxosAtomicalsFT = useFetchAssetUtxosAtomicalsFTCallback();
   const assetUtxosAtomicalsFT = useAssetUtxosAtomicalsFT();
+  const account = useCurrentAccount();
   return useCallback(
     async ({
       toAddressInfo,
@@ -537,7 +593,7 @@ export function usePrepareSendArc20Callback() {
         assetUtxos
       });
       const psbt = bitcoin.Psbt.fromHex(psbtHex);
-      const rawtx = psbt.extractTransaction().toHex();
+      const rawtx = account.type === KEYRING_TYPE.KeystoneKeyring ? '' : psbt.extractTransaction(true).toHex();
       dispatch(
         transactionsActions.updateAtomicalsTx({
           rawtx,
@@ -562,4 +618,104 @@ export function usePrepareSendArc20Callback() {
 export function useAtomicalsTx() {
   const transactionsState = useTransactionsState();
   return transactionsState.atomicalsTx;
+}
+
+export function useAssetUtxosRunes() {
+  const transactionsState = useTransactionsState();
+  return transactionsState.assetUtxos_runes;
+}
+
+export function useFetchAssetUtxosRunesCallback() {
+  const dispatch = useAppDispatch();
+  const wallet = useWallet();
+  const account = useCurrentAccount();
+  return useCallback(
+    async (rune: string) => {
+      const data = await wallet.getAssetUtxosRunes(rune);
+      dispatch(transactionsActions.setAssetUtxosRunes(data));
+      return data;
+    },
+    [wallet, account]
+  );
+}
+
+export function usePrepareSendRunesCallback() {
+  const dispatch = useAppDispatch();
+  const wallet = useWallet();
+  const fromAddress = useAccountAddress();
+  const utxos = useUtxos();
+  const fetchUtxos = useFetchUtxosCallback();
+  const assetUtxosRunes = useAssetUtxosRunes();
+  const fetchAssetUtxosRunes = useFetchAssetUtxosRunesCallback();
+  const account = useCurrentAccount();
+  return useCallback(
+    async ({
+      toAddressInfo,
+      runeid,
+      runeAmount,
+      outputValue,
+      feeRate,
+      enableRBF
+    }: {
+      toAddressInfo: ToAddressInfo;
+      runeid: string;
+      runeAmount: string;
+      outputValue?: number;
+      feeRate: number;
+      enableRBF: boolean;
+    }) => {
+      if (!feeRate) {
+        const summary = await wallet.getFeeSummary();
+        feeRate = summary.list[1].feeRate;
+      }
+
+      let btcUtxos = utxos;
+      if (btcUtxos.length === 0) {
+        btcUtxos = await fetchUtxos();
+      }
+
+      let assetUtxos = assetUtxosRunes;
+      if (assetUtxos.length == 0) {
+        assetUtxos = await fetchAssetUtxosRunes(runeid);
+      }
+
+      const psbtHex = await wallet.sendRunes({
+        to: toAddressInfo.address,
+        runeid,
+        runeAmount,
+        outputValue,
+        feeRate,
+        enableRBF,
+        btcUtxos,
+        assetUtxos
+      });
+      const psbt = bitcoin.Psbt.fromHex(psbtHex);
+
+      const rawtx = account.type === KEYRING_TYPE.KeystoneKeyring ? '' : psbt.extractTransaction(true).toHex();
+      dispatch(
+        transactionsActions.updateRunesTx({
+          rawtx,
+          psbtHex,
+          fromAddress,
+          feeRate,
+          enableRBF,
+          runeid,
+          runeAmount,
+          outputValue
+        })
+      );
+      const rawTxInfo: RawTxInfo = {
+        psbtHex,
+        rawtx,
+        toAddressInfo
+      };
+      return rawTxInfo;
+    },
+    [dispatch, wallet, fromAddress, utxos, assetUtxosRunes, fetchAssetUtxosRunes, account]
+  );
+}
+
+export function useRunesTx() {
+  const transactionsState = useTransactionsState();
+  return transactionsState.runesTx;
 }

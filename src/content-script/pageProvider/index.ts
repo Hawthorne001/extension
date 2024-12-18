@@ -33,53 +33,75 @@ interface StateProvider {
   initialized: boolean;
   isPermanentlyDisconnected: boolean;
 }
-const EXTENSION_CONTEXT_INVALIDATED_CHROMIUM_ERROR = 'Extension context invalidated.';
-export class UnisatProvider extends EventEmitter {
-  _selectedAddress: string | null = null;
-  _network: string | null = null;
-  _isConnected = false;
-  _initialized = false;
-  _isUnlocked = false;
 
-  _state: StateProvider = {
+const EXTENSION_CONTEXT_INVALIDATED_CHROMIUM_ERROR = 'Extension context invalidated.';
+
+const _unisatPrividerPrivate: {
+  _selectedAddress: string | null;
+  _network: string | null;
+  _isConnected: boolean;
+  _initialized: boolean;
+  _isUnlocked: boolean;
+
+  _state: StateProvider;
+
+  _pushEventHandlers: PushEventHandlers | null;
+  _requestPromise: ReadyPromise;
+  _bcm: BroadcastChannelMessage;
+} = {
+  _selectedAddress: null,
+  _network: null,
+  _isConnected: false,
+  _initialized: false,
+  _isUnlocked: false,
+
+  _state: {
     accounts: null,
     isConnected: false,
     isUnlocked: false,
     initialized: false,
     isPermanentlyDisconnected: false
-  };
+  },
 
-  private _pushEventHandlers: PushEventHandlers;
-  private _requestPromise = new ReadyPromise(0);
+  _pushEventHandlers: null,
+  _requestPromise: new ReadyPromise(0),
+  _bcm: new BroadcastChannelMessage(channelName)
+};
 
-  private _bcm = new BroadcastChannelMessage(channelName);
+let cache_origin = '';
 
+export class UnisatProvider extends EventEmitter {
   constructor({ maxListeners = 100 } = {}) {
     super();
     this.setMaxListeners(maxListeners);
     this.initialize();
-    this._pushEventHandlers = new PushEventHandlers(this);
+    _unisatPrividerPrivate._pushEventHandlers = new PushEventHandlers(this, _unisatPrividerPrivate);
   }
 
-  initialize = async () => {
-    document.addEventListener('visibilitychange', this._requestPromiseCheckVisibility);
-
-    this._bcm.connect().on('message', this._handleBackgroundMessage);
-    domReadyCall(() => {
-      const origin = window.top?.location.origin;
+  tryDetectTab = async () => {
+    const origin = window.top?.location.origin;
+    if (origin && cache_origin !== origin) {
+      cache_origin = origin;
       const icon =
         ($('head > link[rel~="icon"]') as HTMLLinkElement)?.href ||
         ($('head > meta[itemprop="image"]') as HTMLMetaElement)?.content;
 
       const name = document.title || ($('head > meta[name="title"]') as HTMLMetaElement)?.content || origin;
-
-      this._bcm.request({
+      _unisatPrividerPrivate._bcm.request({
         method: 'tabCheckin',
         params: { icon, name, origin }
       });
+    }
+  };
 
-      // Do not force to tabCheckin
-      // this._requestPromise.check(2);
+  initialize = async () => {
+    document.addEventListener('visibilitychange', this._requestPromiseCheckVisibility);
+
+    _unisatPrividerPrivate._bcm.connect().on('message', this._handleBackgroundMessage);
+
+    this.tryDetectTab();
+    domReadyCall(() => {
+      this.tryDetectTab();
     });
 
     try {
@@ -87,20 +109,20 @@ export class UnisatProvider extends EventEmitter {
         method: 'getProviderState'
       });
       if (isUnlocked) {
-        this._isUnlocked = true;
-        this._state.isUnlocked = true;
+        _unisatPrividerPrivate._isUnlocked = true;
+        _unisatPrividerPrivate._state.isUnlocked = true;
       }
       this.emit('connect', {});
-      this._pushEventHandlers.networkChanged({
+      _unisatPrividerPrivate._pushEventHandlers?.networkChanged({
         network
       });
 
-      this._pushEventHandlers.accountsChanged(accounts);
+      _unisatPrividerPrivate._pushEventHandlers?.accountsChanged(accounts);
     } catch {
       //
     } finally {
-      this._initialized = true;
-      this._state.initialized = true;
+      _unisatPrividerPrivate._initialized = true;
+      _unisatPrividerPrivate._state.initialized = true;
       this.emit('_initialized');
     }
 
@@ -123,16 +145,16 @@ export class UnisatProvider extends EventEmitter {
 
   private _requestPromiseCheckVisibility = () => {
     if (document.visibilityState === 'visible') {
-      this._requestPromise.check(1);
+      _unisatPrividerPrivate._requestPromise.check(1);
     } else {
-      this._requestPromise.uncheck(1);
+      _unisatPrividerPrivate._requestPromise.uncheck(1);
     }
   };
 
   private _handleBackgroundMessage = ({ event, data }) => {
     log('[push event]', event, data);
-    if (this._pushEventHandlers[event]) {
-      return this._pushEventHandlers[event](data);
+    if (_unisatPrividerPrivate._pushEventHandlers?.[event]) {
+      return _unisatPrividerPrivate._pushEventHandlers[event](data);
     }
 
     this.emit(event, data);
@@ -149,9 +171,9 @@ export class UnisatProvider extends EventEmitter {
 
     this._requestPromiseCheckVisibility();
 
-    return this._requestPromise.call(() => {
+    return _unisatPrividerPrivate._requestPromise.call(() => {
       log('[request]', JSON.stringify(data, null, 2));
-      return this._bcm
+      return _unisatPrividerPrivate._bcm
         .request(data)
         .then((res) => {
           log('[request: success]', data.method, res);
@@ -171,6 +193,12 @@ export class UnisatProvider extends EventEmitter {
     });
   };
 
+  disconnect = async () => {
+    return this._request({
+      method: 'disconnect'
+    });
+  };
+
   getNetwork = async () => {
     return this._request({
       method: 'getNetwork'
@@ -182,6 +210,21 @@ export class UnisatProvider extends EventEmitter {
       method: 'switchNetwork',
       params: {
         network
+      }
+    });
+  };
+
+  getChain = async () => {
+    return this._request({
+      method: 'getChain'
+    });
+  };
+
+  switchChain = async (chain: string) => {
+    return this._request({
+      method: 'switchChain',
+      params: {
+        chain
       }
     });
   };
@@ -224,6 +267,18 @@ export class UnisatProvider extends EventEmitter {
     });
   };
 
+  verifyMessageOfBIP322Simple = async (address: string, message: string, signature: string, network?: number) => {
+    return this._request({
+      method: 'verifyMessageOfBIP322Simple',
+      params: {
+        address,
+        message,
+        signature,
+        network
+      }
+    });
+  };
+
   signData = async (data: string, type: string) => {
     return this._request({
       method: 'signData',
@@ -234,14 +289,21 @@ export class UnisatProvider extends EventEmitter {
     });
   };
 
-  sendBitcoin = async (toAddress: string, satoshis: number, options?: { feeRate: number; memo?: string }) => {
+  sendBitcoin = async (
+    toAddress: string,
+    satoshis: number,
+    options?: { feeRate: number; memo?: string; memos?: string[] }
+  ) => {
     return this._request({
       method: 'sendBitcoin',
       params: {
-        toAddress,
-        satoshis,
-        feeRate: options?.feeRate,
-        memo: options?.memo,
+        sendBitcoinParams: {
+          toAddress,
+          satoshis,
+          feeRate: options?.feeRate,
+          memo: options?.memo,
+          memos: options?.memos
+        },
         type: TxType.SEND_BITCOIN
       }
     });
@@ -251,10 +313,27 @@ export class UnisatProvider extends EventEmitter {
     return this._request({
       method: 'sendInscription',
       params: {
-        toAddress,
-        inscriptionId,
-        feeRate: options?.feeRate,
+        sendInscriptionParams: {
+          toAddress,
+          inscriptionId,
+          feeRate: options?.feeRate
+        },
         type: TxType.SEND_ORDINALS_INSCRIPTION
+      }
+    });
+  };
+
+  sendRunes = async (toAddress: string, runeid: string, amount: string, options?: { feeRate: number }) => {
+    return this._request({
+      method: 'sendRunes',
+      params: {
+        sendRunesParams: {
+          toAddress,
+          runeid,
+          amount,
+          feeRate: options?.feeRate
+        },
+        type: TxType.SEND_RUNES
       }
     });
   };

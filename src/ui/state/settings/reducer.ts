@@ -1,26 +1,31 @@
-import { AddressType, NetworkType, WalletConfig } from '@/shared/types';
+import { ChainType, DEFAULT_LOCKTIME_ID } from '@/shared/constant';
+import { NetworkType, WalletConfig } from '@/shared/types';
 import { createSlice } from '@reduxjs/toolkit';
 
 import { updateVersion } from '../global/actions';
 
 export interface SettingsState {
   locale: string;
-  addressType: AddressType;
   networkType: NetworkType;
+  chainType: ChainType;
   walletConfig: WalletConfig;
   skippedVersion: string;
+  autoLockTimeId: number;
 }
 
 export const initialState: SettingsState = {
   locale: 'English',
-  addressType: AddressType.P2TR,
   networkType: NetworkType.MAINNET,
+  chainType: ChainType.BITCOIN_MAINNET,
   walletConfig: {
     version: '',
     moonPayEnabled: true,
-    statusMessage: ''
+    statusMessage: '',
+    endpoint: '',
+    chainTip: ''
   },
-  skippedVersion: ''
+  skippedVersion: '',
+  autoLockTimeId: DEFAULT_LOCKTIME_ID
 };
 
 const slice = createSlice({
@@ -35,10 +40,11 @@ const slice = createSlice({
       action: {
         payload: {
           locale?: string;
-          addressType?: AddressType;
           networkType?: NetworkType;
           walletConfig?: WalletConfig;
           skippedVersion?: string;
+          chainType?: ChainType;
+          autoLockTimeId?: number;
         };
       }
     ) {

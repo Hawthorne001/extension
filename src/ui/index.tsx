@@ -1,12 +1,14 @@
 import en from 'antd/es/locale/en_US';
 import message from 'antd/lib/message';
 import ReactDOM from 'react-dom/client';
+import { IdleTimerProvider } from 'react-idle-timer';
 import { Provider } from 'react-redux';
 
 import browser from '@/background/webapi/browser';
 import { EVENTS } from '@/shared/constant';
 import eventBus from '@/shared/eventBus';
 import { Message } from '@/shared/utils';
+import { PriceProvider } from '@/ui/provider/PriceProvider';
 import AccountUpdater from '@/ui/state/accounts/updater';
 import '@/ui/styles/global.less';
 
@@ -155,8 +157,15 @@ root.render(
     <WalletProvider {...antdConfig} wallet={wallet as any}>
       <ActionComponentProvider>
         <AppDimensions>
-          <Updaters />
-          <AsyncMainRoute />
+          <PriceProvider>
+            <IdleTimerProvider
+              onAction={() => {
+                wallet.setLastActiveTime();
+              }}>
+              <Updaters />
+              <AsyncMainRoute />
+            </IdleTimerProvider>
+          </PriceProvider>
         </AppDimensions>
       </ActionComponentProvider>
     </WalletProvider>
