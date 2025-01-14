@@ -16,17 +16,19 @@ export default function TxConfirmScreen() {
   const pushBitcoinTx = usePushBitcoinTxCallback();
   return (
     <SignPsbt
-      header=<Header
-        onBack={() => {
-          window.history.go(-1);
-        }}
-      />
+      header={
+        <Header
+          onBack={() => {
+            window.history.go(-1);
+          }}
+        />
+      }
       params={{ data: { psbtHex: rawTxInfo.psbtHex, type: TxType.SEND_BITCOIN, rawTxInfo } }}
       handleCancel={() => {
         window.history.go(-1);
       }}
-      handleConfirm={() => {
-        pushBitcoinTx(rawTxInfo.rawtx).then(({ success, txid, error }) => {
+      handleConfirm={(res) => {
+        pushBitcoinTx((res ?? rawTxInfo).rawtx).then(({ success, txid, error }) => {
           if (success) {
             navigate('TxSuccessScreen', { txid });
           } else {

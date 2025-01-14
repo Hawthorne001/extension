@@ -16,11 +16,11 @@ export default function SignOrdinalsTransactionScreen() {
   const pushOrdinalsTx = usePushOrdinalsTxCallback();
   return (
     <SignPsbt
-      header=<Header
+      header={<Header
         onBack={() => {
           window.history.go(-1);
         }}
-      />
+      />}
       params={{
         data: {
           psbtHex: rawTxInfo.psbtHex,
@@ -32,8 +32,8 @@ export default function SignOrdinalsTransactionScreen() {
       handleCancel={() => {
         navigate('MainScreen');
       }}
-      handleConfirm={() => {
-        pushOrdinalsTx(rawTxInfo.rawtx).then(({ success, txid, error }) => {
+      handleConfirm={(res) => {
+        pushOrdinalsTx((res ?? rawTxInfo).rawtx).then(({ success, txid, error }) => {
           if (success) {
             navigate('TxSuccessScreen', { txid });
           } else {

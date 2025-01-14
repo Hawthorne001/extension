@@ -1,3 +1,4 @@
+import { Inscription } from '@/shared/types';
 import { createSlice } from '@reduxjs/toolkit';
 
 import { updateVersion } from '../global/actions';
@@ -6,16 +7,30 @@ export interface UIState {
   assetTabKey: AssetTabKey;
   ordinalsAssetTabKey: OrdinalsAssetTabKey;
   atomicalsAssetTabKey: AtomicalsAssetTabKey;
+  catAssetTabKey: CATAssetTabKey;
+  uiTxCreateScreen: {
+    toInfo: {
+      address: string;
+      domain: string;
+      inscription?: Inscription;
+    };
+    inputAmount: string;
+    enableRBF: boolean;
+    feeRate: number;
+  };
 }
 
 export enum AssetTabKey {
   ORDINALS,
-  ATOMICALS
+  ATOMICALS,
+  RUNES,
+  CAT
 }
 
 export enum OrdinalsAssetTabKey {
   ALL,
-  BRC20
+  BRC20,
+  BRC20_5BYTE
 }
 
 export enum AtomicalsAssetTabKey {
@@ -24,10 +39,26 @@ export enum AtomicalsAssetTabKey {
   OTHERS
 }
 
+export enum CATAssetTabKey {
+  CAT20,
+  CAT721
+}
+
 export const initialState: UIState = {
   assetTabKey: AssetTabKey.ORDINALS,
   ordinalsAssetTabKey: OrdinalsAssetTabKey.ALL,
-  atomicalsAssetTabKey: AtomicalsAssetTabKey.ARC20
+  atomicalsAssetTabKey: AtomicalsAssetTabKey.ARC20,
+  catAssetTabKey: CATAssetTabKey.CAT20,
+  uiTxCreateScreen: {
+    toInfo: {
+      address: '',
+      domain: '',
+      inscription: undefined
+    },
+    inputAmount: '',
+    enableRBF: false,
+    feeRate: 1
+  }
 };
 
 const slice = createSlice({
@@ -44,6 +75,7 @@ const slice = createSlice({
           assetTabKey?: AssetTabKey;
           ordinalsAssetTabKey?: OrdinalsAssetTabKey;
           atomicalsAssetTabKey?: AtomicalsAssetTabKey;
+          catAssetTabKey?: CATAssetTabKey;
         };
       }
     ) {
@@ -57,7 +89,41 @@ const slice = createSlice({
       if (payload.atomicalsAssetTabKey !== undefined) {
         state.atomicalsAssetTabKey = payload.atomicalsAssetTabKey;
       }
+      if (payload.catAssetTabKey !== undefined) {
+        state.catAssetTabKey = payload.catAssetTabKey;
+      }
       return state;
+    },
+    updateTxCreateScreen(
+      state,
+      action: {
+        payload: {
+          toInfo?: {
+            address: string;
+            domain: string;
+            inscription?: Inscription;
+          };
+          inputAmount?: string;
+          enableRBF?: boolean;
+          feeRate?: number;
+        };
+      }
+    ) {
+      if (action.payload.toInfo !== undefined) {
+        state.uiTxCreateScreen.toInfo = action.payload.toInfo;
+      }
+      if (action.payload.inputAmount !== undefined) {
+        state.uiTxCreateScreen.inputAmount = action.payload.inputAmount;
+      }
+      if (action.payload.enableRBF !== undefined) {
+        state.uiTxCreateScreen.enableRBF = action.payload.enableRBF;
+      }
+      if (action.payload.feeRate !== undefined) {
+        state.uiTxCreateScreen.feeRate = action.payload.feeRate;
+      }
+    },
+    resetTxCreateScreen(state) {
+      state.uiTxCreateScreen = initialState.uiTxCreateScreen;
     }
   },
   extraReducers: (builder) => {
@@ -71,6 +137,12 @@ const slice = createSlice({
       }
       if (!state.atomicalsAssetTabKey) {
         state.atomicalsAssetTabKey = AtomicalsAssetTabKey.ARC20;
+      }
+      if (!state.catAssetTabKey) {
+        state.catAssetTabKey = CATAssetTabKey.CAT20;
+      }
+      if (!state.uiTxCreateScreen) {
+        state.uiTxCreateScreen = initialState.uiTxCreateScreen;
       }
     });
   }

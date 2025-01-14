@@ -1,8 +1,8 @@
 import BigNumber from 'bignumber.js';
 import { useLocation } from 'react-router-dom';
 
-export * from './WalletContext';
 export * from './hooks';
+export * from './WalletContext';
 const UI_TYPE = {
   Tab: 'index',
   Pop: 'popup',
@@ -100,6 +100,10 @@ export function shortDesc(desc?: string, len = 50) {
   return desc.slice(0, len) + '...';
 }
 
+export function shortUtxo(txid: string, vout: number) {
+  return txid.slice(0, 8) + '...:' + vout;
+}
+
 export async function sleep(timeSec: number) {
   return new Promise((resolve) => {
     setTimeout(() => {
@@ -165,4 +169,45 @@ export function useLocationState<T>() {
   return state as T;
 }
 
-BigNumber.config({ EXPONENTIAL_AT: [-20, 20] });
+export function numberWithCommas(value: string, maxFixed: number, isFixed = false) {
+  const [integerPart, decimalPart] = value.toString().split('.');
+  const integerPartWithCommas = integerPart.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  if (maxFixed === 0) {
+    // no decimal
+    return integerPartWithCommas;
+  } else if (maxFixed > 0) {
+    if (isFixed) {
+      // fixed
+      return `${integerPartWithCommas}.${(decimalPart || '').substring(0, maxFixed).padEnd(maxFixed, '0')}`;
+    } else {
+      return decimalPart
+        ? `${integerPartWithCommas}.${decimalPart.substring(0, Math.min(maxFixed, decimalPart.length))}`
+        : integerPartWithCommas;
+    }
+  } else {
+    // fixed <0 show all decimal
+    return decimalPart ? `${integerPartWithCommas}.${decimalPart}` : integerPartWithCommas;
+  }
+}
+
+export function showLongNumber(num: string | number | undefined, maxFixed = 8, isFixed = false) {
+  if (!num || new BigNumber(num).isZero()) return '0';
+  if (Math.abs(num as number) < 0.000001 && maxFixed <= 6) {
+    let temp = '0.';
+    for (let i = 0; i < maxFixed; i += 1) {
+      temp += '0';
+    }
+    return temp;
+  }
+  return numberWithCommas(num.toString(), maxFixed, isFixed);
+}
+
+BigNumber.config({ EXPONENTIAL_AT: 1e9, DECIMAL_PLACES: 38 });
+
+export function formatSessionIcon(session: { origin: string; icon: string; name: string }) {
+  let iconUrl = session.icon;
+  if (iconUrl && iconUrl.indexOf('/') === 0) {
+    iconUrl = `${session.origin}${iconUrl}`;
+  }
+  return iconUrl;
+}

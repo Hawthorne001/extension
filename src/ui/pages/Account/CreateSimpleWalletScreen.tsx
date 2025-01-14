@@ -60,7 +60,7 @@ function Step1({
       <Text text="Private Key" textCenter preset="bold" />
 
       <Input
-        placeholder={'WIF Private Key / Hex Private Key'}
+        placeholder={'WIF Private Key or Hex Private Key'}
         onKeyUp={(e: React.KeyboardEvent<HTMLInputElement>) => {
           if ('Enter' == e.key) {
             btnClick();
@@ -196,7 +196,7 @@ function Step2({
       })}
 
       <FooterButtonContainer>
-        <Button text="Coninue" preset="primary" onClick={onNext} />
+        <Button text="Continue" preset="primary" onClick={onNext} />
       </FooterButtonContainer>
     </Column>
   );

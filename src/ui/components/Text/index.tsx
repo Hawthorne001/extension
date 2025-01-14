@@ -2,10 +2,12 @@ import { CSSProperties } from 'react';
 
 import { colors, ColorTypes } from '@/ui/theme/colors';
 import { typography } from '@/ui/theme/typography';
+import { showLongNumber } from '@/ui/utils';
 
 import { BaseView, BaseViewProps } from '../BaseView';
+import './index.less';
 
-type Sizes = keyof typeof $sizeStyles;
+export type Sizes = keyof typeof $sizeStyles;
 type Presets = keyof typeof $presets;
 
 export const $sizeStyles = {
@@ -58,6 +60,7 @@ const $presets = {
   } as CSSProperties),
   default: $baseStyle
 };
+
 export interface TextProps extends BaseViewProps {
   text?: string | number;
   preset?: Presets;
@@ -68,12 +71,29 @@ export interface TextProps extends BaseViewProps {
   wrap?: boolean;
   selectText?: boolean;
   disableTranslate?: boolean;
+  digital?: boolean;
+  ellipsis?: boolean;
+  max1Lines?: boolean;
+  max2Lines?: boolean;
 }
 
 export const $textPresets = $presets;
 
 export function Text(props: TextProps) {
-  const { size, text, textCenter, textEnd, wrap, selectText, disableTranslate, style: $styleOverride, ...rest } = props;
+  const {
+    size,
+    text,
+    textCenter,
+    textEnd,
+    wrap,
+    selectText,
+    disableTranslate,
+    ellipsis,
+    style: $styleOverride,
+    max1Lines,
+    max2Lines,
+    ...rest
+  } = props;
   const preset: Presets = props.preset || 'regular';
   const $textStyle = Object.assign(
     {},
@@ -82,12 +102,32 @@ export function Text(props: TextProps) {
     textCenter ? { textAlign: 'center' } : {},
     textEnd ? { textAlign: 'end' } : {},
     wrap ? { overflowWrap: 'anywhere' } : {},
-    selectText ? { userSelect: 'text' } : {}
+    selectText ? { userSelect: 'text' } : {},
+    ellipsis
+      ? {
+          whiteSpace: 'nowrap',
+          textOverflow: 'ellipsis',
+          overflow: 'hidden'
+        }
+      : {}
   );
   const $style = Object.assign({}, $textStyle, $styleOverride);
+  const textUse = props.digital ? showLongNumber(text) : text;
+  let textUseClassName = '';
+  if (max1Lines) {
+    textUseClassName = 'span-max-lines-1';
+  } else if (max2Lines) {
+    textUseClassName = 'span-max-lines-2';
+  }
   return (
     <BaseView style={$style} {...rest}>
-      {disableTranslate ? <span translate="no">{text}</span> : text}
+      {disableTranslate ? (
+        <span translate="no" className="span-text">
+          {textUse}
+        </span>
+      ) : (
+        <span className={textUseClassName}>{textUse}</span>
+      )}
     </BaseView>
   );
 }

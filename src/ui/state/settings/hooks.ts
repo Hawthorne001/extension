@@ -1,12 +1,14 @@
 import compareVersions from 'compare-versions';
 import { useCallback } from 'react';
 
-import { VERSION } from '@/shared/constant';
-import { NetworkType } from '@/shared/types';
+import { CHAINS_MAP, ChainType, VERSION } from '@/shared/constant';
+import { AddressType, NetworkType } from '@/shared/types';
 import { useWallet } from '@/ui/utils';
 import i18n, { addResourceBundle } from '@/ui/utils/i18n';
+import { getAddressType } from '@unisat/wallet-sdk/lib/address';
 
 import { AppState } from '..';
+import { useCurrentAccount } from '../accounts/hooks';
 import { useAppDispatch, useAppSelector } from '../hooks';
 import { settingsActions } from './reducer';
 
@@ -39,14 +41,14 @@ export function useChangeLocaleCallback() {
   );
 }
 
-export function useAddressType() {
-  const accountsState = useSettingsState();
-  return accountsState.addressType;
-}
-
 export function useNetworkType() {
   const accountsState = useSettingsState();
-  return accountsState.networkType;
+  const chain = CHAINS_MAP[accountsState.chainType];
+  if (chain) {
+    return chain.networkType;
+  } else {
+    return NetworkType.TESTNET;
+  }
 }
 
 export function useChangeNetworkTypeCallback() {
@@ -54,42 +56,88 @@ export function useChangeNetworkTypeCallback() {
   const wallet = useWallet();
   return useCallback(
     async (type: NetworkType) => {
-      await wallet.setNetworkType(type);
-      dispatch(
-        settingsActions.updateSettings({
-          networkType: type
-        })
-      );
+      if (type === NetworkType.MAINNET) {
+        await wallet.setChainType(ChainType.BITCOIN_MAINNET);
+        dispatch(
+          settingsActions.updateSettings({
+            chainType: ChainType.BITCOIN_MAINNET
+          })
+        );
+      } else if (type === NetworkType.TESTNET) {
+        await wallet.setChainType(ChainType.BITCOIN_TESTNET);
+        dispatch(
+          settingsActions.updateSettings({
+            chainType: ChainType.BITCOIN_TESTNET
+          })
+        );
+      }
     },
     [dispatch]
   );
 }
 
-export function useBlockstreamUrl() {
-  const networkType = useNetworkType();
-  if (networkType === NetworkType.MAINNET) {
-    return 'https://mempool.space';
+export function useChainType() {
+  const accountsState = useSettingsState();
+  return accountsState.chainType;
+}
+
+export function useChain() {
+  const accountsState = useSettingsState();
+  return CHAINS_MAP[accountsState.chainType];
+}
+
+export function useChangeChainTypeCallback() {
+  const dispatch = useAppDispatch();
+  const wallet = useWallet();
+  return useCallback(
+    async (type: ChainType) => {
+      dispatch(
+        settingsActions.updateSettings({
+          chainType: type
+        })
+      );
+      await wallet.setChainType(type);
+    },
+    [dispatch]
+  );
+}
+
+export function useBTCUnit() {
+  const chainType = useChainType();
+  return CHAINS_MAP[chainType].unit;
+}
+
+export function useTxExplorerUrl(txid: string) {
+  const chain = useChain();
+  if (chain.defaultExplorer === 'mempool-space') {
+    return `${chain.mempoolSpaceUrl}/tx/${txid}`;
   } else {
-    return 'https://mempool.space/testnet';
+    return `${chain.unisatExplorerUrl}/tx/${txid}`;
   }
 }
 
-export function useTxIdUrl(txid: string) {
-  const networkType = useNetworkType();
-  if (networkType === NetworkType.MAINNET) {
-    return `https://mempool.space/tx/${txid}`;
+export function useAddressExplorerUrl(address: string) {
+  const chain = useChain();
+  if (chain.defaultExplorer === 'mempool-space') {
+    return `${chain.mempoolSpaceUrl}/address/${address}`;
   } else {
-    return `https://mempool.space/testnet/tx/${txid}`;
+    return `${chain.unisatExplorerUrl}/address/${address}`;
   }
+}
+
+export function useCAT20TokenInfoExplorerUrl(tokenId: string) {
+  const chain = useChain();
+  return `${chain.unisatExplorerUrl}/cat20/${tokenId}`;
 }
 
 export function useUnisatWebsite() {
-  const networkType = useNetworkType();
-  if (networkType === NetworkType.MAINNET) {
-    return 'https://unisat.io';
-  } else {
-    return 'https://testnet.unisat.io';
-  }
+  const chainType = useChainType();
+  return CHAINS_MAP[chainType].unisatUrl;
+}
+
+export function useOrdinalsWebsite() {
+  const chainType = useChainType();
+  return CHAINS_MAP[chainType].ordinalsUrl;
 }
 
 export function useWalletConfig() {
@@ -144,4 +192,49 @@ export function useSkipVersionCallback() {
       dispatch(settingsActions.updateSettings({ skippedVersion: version }));
     });
   }, []);
+}
+
+export function useAutoLockTimeId() {
+  const state = useSettingsState();
+  return state.autoLockTimeId;
+}
+
+export function getAddressTips(address: string, chanEnum: ChainType) {
+  let ret = {
+    homeTip: '',
+    sendTip: ''
+  };
+  try {
+    const chain = CHAINS_MAP[chanEnum];
+    const addressType = getAddressType(address, chain.networkType);
+    if (chain.isFractal && addressType === AddressType.P2PKH) {
+      ret = {
+        homeTip:
+          '⚠️  It is not recommended to use legacy addresses, as they may lead to higher transaction fees or the unintended lock-up of CAT20 balances.',
+        sendTip:
+          '⚠️  It is not recommended to send transactions to legacy addresses, as this may result in the unintended spending of CAT20 balances.'
+      };
+    }
+  } catch (e) {
+    console.log(e);
+  }
+
+  return ret;
+}
+
+export function useAddressTips() {
+  const chain = useChain();
+  const account = useCurrentAccount();
+  return getAddressTips(account.address, chain.enum);
+}
+
+export function useCAT721NFTContentBaseUrl() {
+  const chainType = useChainType();
+  if (chainType === ChainType.FRACTAL_BITCOIN_MAINNET) {
+    return 'https://tracker-fractal-mainnet.catprotocol.org';
+  } else if (chainType === ChainType.FRACTAL_BITCOIN_TESTNET) {
+    return 'https://tracker-fractal-testnet.catprotocol.org';
+  } else {
+    return '';
+  }
 }

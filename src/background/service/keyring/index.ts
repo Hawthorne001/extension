@@ -14,16 +14,18 @@ import i18n from '../i18n';
 import preference from '../preference';
 import DisplayKeyring from './display';
 
-const { SimpleKeyring, HdKeyring } = keyring;
+const { SimpleKeyring, HdKeyring, KeystoneKeyring } = keyring;
 
 export const KEYRING_SDK_TYPES = {
   SimpleKeyring,
-  HdKeyring
+  HdKeyring,
+  KeystoneKeyring
 };
 
 export const KEYRING_CLASS = {
   PRIVATE_KEY: SimpleKeyring.type,
-  MNEMONIC: HdKeyring.type
+  MNEMONIC: HdKeyring.type,
+  KEYSTORE: KeystoneKeyring.type
 };
 
 interface MemStoreState {
@@ -52,6 +54,7 @@ export interface ToSignInput {
 }
 export interface Keyring {
   type: string;
+  mfp?: string;
   serialize(): Promise<any>;
   deserialize(opts: any): Promise<void>;
   addAccounts(n: number): Promise<string[]>;
@@ -76,6 +79,12 @@ export interface Keyring {
 
   changeHdPath?(hdPath: string): void;
   getAccountByHdPath?(hdPath: string, index: number): string;
+
+  genSignPsbtUr?(psbtHex: string): Promise<{ type: string; cbor: string }>;
+  parseSignPsbtUr?(type: string, cbor: string): Promise<string>;
+  genSignMsgUr?(publicKey: string, text: string): Promise<{ type: string; cbor: string; requestId: string }>;
+  parseSignMsgUr?(type: string, cbor: string): Promise<{ requestId: string; publicKey: string; signature: string }>;
+  getConnectionType?(): 'USB' | 'QR';
 }
 
 class EmptyKeyring implements Keyring {
@@ -138,7 +147,8 @@ class KeyringService extends EventEmitter {
       keyringTypes: this.keyringTypes.map((krt) => krt.type),
       keyrings: [],
       preMnemonics: '',
-      addressTypes: []
+      addressTypes: [],
+      keystone: null
     });
 
     this.keyrings = [];
@@ -283,9 +293,41 @@ class KeyringService extends EventEmitter {
     return keyring;
   };
 
-  addKeyring = async (keyring: Keyring, addressType: AddressType) => {
+  createKeyringWithKeystone = async (
+    urType: string,
+    urCbor: string,
+    addressType: AddressType,
+    hdPath: string,
+    accountCount: number,
+    connectionType: 'USB' | 'QR' = 'USB'
+  ) => {
+    if (accountCount < 1) {
+      throw new Error(i18n.t('account count must be greater than 0'));
+    }
+    await this.persistAllKeyrings();
+    const tmpKeyring = new KeystoneKeyring();
+    await tmpKeyring.initFromUR(urType, urCbor, connectionType);
+    if (hdPath.length >= 13) {
+      tmpKeyring.changeChangeAddressHdPath(hdPath);
+      tmpKeyring.addAccounts(accountCount);
+    } else {
+      tmpKeyring.changeHdPath(ADDRESS_TYPES[addressType].hdPath);
+      tmpKeyring.addAccounts(accountCount);
+    }
+
+    const opts = await tmpKeyring.serialize();
+    const keyring = await this.addNewKeyring(KEYRING_TYPE.KeystoneKeyring, opts, addressType);
     const accounts = await keyring.getAccounts();
 
+    if (!accounts[0]) {
+      throw new Error('KeyringController - First Account not found.');
+    }
+    this.setUnlocked();
+    return keyring;
+  };
+
+  addKeyring = async (keyring: Keyring, addressType: AddressType) => {
+    const accounts = await keyring.getAccounts();
     await this.checkForDuplicate(keyring.type, accounts);
     this.keyrings.push(keyring);
     this.addressTypes.push(addressType);
@@ -297,7 +339,7 @@ class KeyringService extends EventEmitter {
 
   changeAddressType = async (keyringIndex: number, addressType: AddressType) => {
     const keyring: Keyring = this.keyrings[keyringIndex];
-    if (keyring.type === KEYRING_TYPE.HdKeyring) {
+    if (keyring.type === KEYRING_TYPE.HdKeyring || keyring.type === KEYRING_TYPE.KeystoneKeyring) {
       const hdPath = ADDRESS_TYPES[addressType].hdPath;
       if ((keyring as any).hdPath !== hdPath && keyring.changeHdPath) {
         keyring.changeHdPath(hdPath);
@@ -323,6 +365,7 @@ class KeyringService extends EventEmitter {
     this.memStore.updateState({ isUnlocked: false });
     // remove keyrings
     this.keyrings = [];
+    this.addressTypes = [];
     await this._updateMemStoreKeyrings();
     this.emit('lock');
     return this.fullUpdate();
@@ -529,8 +572,8 @@ class KeyringService extends EventEmitter {
    *
    * Attempts to sign the provided message parameters.
    */
-  signMessage = async (address: string, data: string) => {
-    const keyring = await this.getKeyringForAccount(address);
+  signMessage = async (address: string, keyringType: string, data: string) => {
+    const keyring = await this.getKeyringForAccount(address, keyringType);
     const sig = await keyring.signMessage(address, data);
     return sig;
   };
@@ -820,6 +863,7 @@ class KeyringService extends EventEmitter {
   clearKeyrings = async (): Promise<void> => {
     // clear keyrings from memory
     this.keyrings = [];
+    this.addressTypes = [];
     this.memStore.updateState({
       keyrings: []
     });

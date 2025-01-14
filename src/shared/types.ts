@@ -1,4 +1,4 @@
-import { CHAINS_ENUM } from './constant';
+import { CHAINS_ENUM, PaymentChannelType } from './constant';
 
 export enum AddressType {
   P2PKH,
@@ -48,13 +48,27 @@ export interface AddressAssets {
   total_inscription: number;
 }
 
+export interface TxHistoryInOutItem {
+  address: string;
+  value: number;
+  inscriptions: { inscriptionId: string }[];
+  runes: { spacedRune: string; symbol: string; divisibility: number; amount: string }[];
+  brc20: { ticker: string; amount: string }[];
+}
+
 export interface TxHistoryItem {
   txid: string;
-  time: number;
-  date: string;
-  amount: string;
-  symbol: string;
-  address: string;
+  confirmations: number;
+  height: number;
+  timestamp: number;
+  size: number;
+  feeRate: number;
+  fee: number;
+  outputValue: number;
+  vin: TxHistoryInOutItem[];
+  vout: TxHistoryInOutItem[];
+  types: string[];
+  methods: string[];
 }
 
 export interface Inscription {
@@ -74,6 +88,15 @@ export interface Inscription {
   contentBody: string;
   utxoHeight: number;
   utxoConfirmation: number;
+  brc20?: {
+    op: string;
+    tick: string;
+    lim: string;
+    amt: string;
+    decimal: string;
+  };
+  multipleNFT?: boolean;
+  sameOffset?: boolean;
 }
 
 export interface Atomical {
@@ -81,6 +104,7 @@ export interface Atomical {
   atomicalNumber: number;
   type: 'FT' | 'NFT';
   ticker?: string;
+  atomicalValue: number;
 
   // mint info
   address: string;
@@ -135,6 +159,11 @@ export interface FeeSummary {
   }[];
 }
 
+export interface CoinPrice {
+  btc: number;
+  fb: number;
+}
+
 export interface UTXO {
   txid: string;
   vout: number;
@@ -151,6 +180,13 @@ export interface UTXO {
     atomicalNumber: number;
     type: 'NFT' | 'FT';
     ticker?: string;
+    atomicalValue?: number;
+  }[];
+
+  runes: {
+    runeid: string;
+    rune: string;
+    amount: string;
   }[];
 }
 
@@ -167,13 +203,16 @@ export enum TxType {
   SIGN_TX,
   SEND_BITCOIN,
   SEND_ORDINALS_INSCRIPTION,
-  SEND_ATOMICALS_INSCRIPTION
+  SEND_ATOMICALS_INSCRIPTION,
+  SEND_RUNES
 }
 
 interface BaseUserToSignInput {
   index: number;
   sighashTypes: number[] | undefined;
+  useTweakedSigner?: boolean;
   disableTweakSigner?: boolean;
+  tapLeafHashToSign?: string;
 }
 
 export interface AddressUserToSignInput extends BaseUserToSignInput {
@@ -195,7 +234,9 @@ export interface ToSignInput {
   index: number;
   publicKey: string;
   sighashTypes?: number[];
+  tapLeafHashToSign?: Buffer;
 }
+
 export type WalletKeyring = {
   key: string;
   index: number;
@@ -236,6 +277,9 @@ export interface TokenBalance {
   transferableBalance: string;
   availableBalanceSafe: string;
   availableBalanceUnSafe: string;
+  selfMint: boolean;
+  displayName?: string;
+  tag?: string;
 }
 
 export interface Arc20Balance {
@@ -249,18 +293,24 @@ export interface TokenInfo {
   totalSupply: string;
   totalMinted: string;
   decimal: number;
+  holder: string;
+  inscriptionId: string;
+  selfMint?: boolean;
 }
 
 export enum TokenInscriptionType {
   INSCRIBE_TRANSFER,
   INSCRIBE_MINT
 }
+
 export interface TokenTransfer {
   ticker: string;
   amount: string;
   inscriptionId: string;
   inscriptionNumber: number;
   timestamp: number;
+  confirmations: number;
+  satoshi: number;
 }
 
 export interface AddressTokenSummary {
@@ -268,6 +318,30 @@ export interface AddressTokenSummary {
   tokenBalance: TokenBalance;
   historyList: TokenTransfer[];
   transferableList: TokenTransfer[];
+}
+
+export enum RiskType {
+  SIGHASH_NONE,
+  SCAMMER_ADDRESS,
+  UNCONFIRMED_UTXO,
+  INSCRIPTION_BURNING,
+  ATOMICALS_DISABLE,
+  ATOMICALS_NFT_BURNING,
+  ATOMICALS_FT_BURNING,
+  MULTIPLE_ASSETS,
+  LOW_FEE_RATE,
+  HIGH_FEE_RATE,
+  SPLITTING_INSCRIPTIONS,
+  MERGING_INSCRIPTIONS,
+  CHANGING_INSCRIPTION,
+  RUNES_BURNING
+}
+
+export interface Risk {
+  type: RiskType;
+  level: 'danger' | 'warning' | 'critical';
+  title: string;
+  desc: string;
 }
 
 export interface DecodedPsbt {
@@ -279,12 +353,14 @@ export interface DecodedPsbt {
     inscriptions: Inscription[];
     atomicals: Atomical[];
     sighashType: number;
+    runes: RuneBalance[];
   }[];
   outputInfos: {
     address: string;
     value: number;
     inscriptions: Inscription[];
     atomicals: Atomical[];
+    runes: RuneBalance[];
   }[];
   inscriptions: { [key: string]: Inscription };
   feeRate: number;
@@ -292,7 +368,10 @@ export interface DecodedPsbt {
   features: {
     rbf: boolean;
   };
-  risks: { level: 'high' | 'low'; desc: string }[];
+  risks: Risk[];
+  isScammer: boolean;
+  recommendedFeeRate: number;
+  shouldWarnFeeRate: boolean;
 }
 
 export interface ToAddressInfo {
@@ -312,6 +391,8 @@ export interface WalletConfig {
   version: string;
   moonPayEnabled: boolean;
   statusMessage: string;
+  endpoint: string;
+  chainTip: string;
 }
 
 export enum WebsiteState {
@@ -321,13 +402,16 @@ export enum WebsiteState {
 }
 
 export interface AddressSummary {
+  address: string;
   totalSatoshis: number;
   btcSatoshis: number;
   assetSatoshis: number;
   inscriptionCount: number;
   atomicalsCount: number;
   brc20Count: number;
+  brc20Count5Byte: number;
   arc20Count: number;
+  runesCount: number;
   loading?: boolean;
 }
 
@@ -335,4 +419,124 @@ export interface VersionDetail {
   version: string;
   title: string;
   changelogs: string[];
+}
+
+export interface RuneBalance {
+  amount: string;
+  runeid: string;
+  rune: string;
+  spacedRune: string;
+  symbol: string;
+  divisibility: number;
+}
+
+export interface RuneInfo {
+  runeid: string;
+  rune: string;
+  spacedRune: string;
+  number: number;
+  height: number;
+  txidx: number;
+  timestamp: number;
+  divisibility: number;
+  symbol: string;
+  etching: string;
+  premine: string;
+  terms: {
+    amount: string;
+    cap: string;
+    heightStart: number;
+    heightEnd: number;
+    offsetStart: number;
+    offsetEnd: number;
+  };
+  mints: string;
+  burned: string;
+  holders: number;
+  transactions: number;
+  mintable: boolean;
+  remaining: string;
+  start: number;
+  end: number;
+  supply: string;
+  parent?: string;
+}
+
+export interface AddressRunesTokenSummary {
+  runeInfo: RuneInfo;
+  runeBalance: RuneBalance;
+  runeLogo?: Inscription;
+}
+
+export interface BtcChannelItem {
+  channel: PaymentChannelType;
+  quote: number;
+  payType: string[];
+}
+
+export type TickPriceItem = {
+  curPrice: number;
+  changePercent: number;
+};
+
+export interface CAT20Balance {
+  tokenId: string;
+  amount: string;
+  name: string;
+  symbol: string;
+  decimals: number;
+}
+
+export interface CAT20TokenInfo {
+  tokenId: string;
+  name: string;
+  symbol: string;
+  max: string;
+  premine: string;
+  limit: number;
+}
+
+export interface AddressCAT20TokenSummary {
+  cat20Info: CAT20TokenInfo;
+  cat20Balance: CAT20Balance;
+}
+
+export interface AddressCAT20UtxoSummary {
+  availableTokenAmounts: string[];
+  availableUtxoCount: number;
+  totalUtxoCount: number;
+}
+
+export interface CAT20MergeOrder {
+  id: string;
+  batchIndex: number;
+  batchCount: number;
+  ct: number;
+}
+
+export interface WebsiteResult {
+  isScammer: boolean;
+  warning: string;
+  allowQuickMultiSign: boolean;
+}
+
+export interface CAT721Balance {
+  collectionId: string;
+  name: string;
+  count: number;
+  previewLocalIds: string[];
+}
+
+export interface CAT721CollectionInfo {
+  collectionId: string;
+  name: string;
+  symbol: string;
+  max: string;
+  premine: string;
+  description: string;
+}
+
+export interface AddressCAT721CollectionSummary {
+  collectionInfo: CAT721CollectionInfo;
+  localIds: string[];
 }

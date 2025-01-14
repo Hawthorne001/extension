@@ -47,9 +47,9 @@ export function OutputValueBar({
     } else if (options.length > 0) {
       val = options[optionIndex].value;
     }
-    if (val + '' != inputVal) {
-      setInputVal(val);
-    }
+    // if (val + '' != inputVal) {
+    //   setInputVal(val);
+    // }
     onChange(val);
     setCurrentValue(val);
   }, [optionIndex, inputVal]);

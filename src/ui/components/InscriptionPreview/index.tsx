@@ -2,6 +2,7 @@ import { Tooltip } from 'antd';
 import { CSSProperties } from 'react';
 
 import { Inscription } from '@/shared/types';
+import { useOrdinalsWebsite } from '@/ui/state/settings/hooks';
 import { colors } from '@/ui/theme/colors';
 import { fontSizes } from '@/ui/theme/font';
 
@@ -90,47 +91,64 @@ export interface InscriptionProps {
   data: Inscription;
   onClick?: (data: any) => void;
   preset: Presets;
+  asLogo?: boolean;
+  hideValue?: boolean;
 }
 
-export default function InscriptionPreview({ data, onClick, preset }: InscriptionProps) {
+export default function InscriptionPreview({ data, onClick, preset, asLogo, hideValue }: InscriptionProps) {
   const date = new Date(data.timestamp * 1000);
   const time = getDateShowdate(date);
   const isUnconfirmed = date.getTime() < 100;
   const numberStr = isUnconfirmed ? 'unconfirmed' : `# ${data.inscriptionNumber}`;
 
+  const url = useOrdinalsWebsite();
+  let preview = data.preview;
+  if (!preview) {
+    preview = url + '/preview/' + data.inscriptionId;
+  }
+  if (asLogo) {
+    return <Iframe preview={preview} style={$iframePresets[preset]} />;
+  }
+
+  const valueText = `${data.outputValue} sats`;
+
   return (
     <Column gap="zero" onClick={onClick} style={Object.assign({ position: 'relative' }, $containerPresets[preset])}>
-      <Iframe preview={data.preview} style={$iframePresets[preset]} />
-      <div style={Object.assign({ position: 'absolute', zIndex: 10 }, $iframePresets[preset])}>
-        <Column fullY>
-          <Row style={{ flex: 1 }} />
-          <Row fullX justifyEnd mb="sm">
-            <Tooltip
-              title={`The UTXO containing this inscription has ${data.outputValue} sats`}
-              overlayStyle={{
-                fontSize: fontSizes.xs
-              }}>
-              <div>
-                <Text
-                  text={`${data.outputValue} sats`}
-                  size="xs"
-                  style={{
-                    backgroundColor: 'rgba(255,255,255,0.2)',
-                    padding: 2,
-                    borderRadius: 5,
-                    paddingLeft: 4,
-                    paddingRight: 4,
-                    marginRight: 2
-                  }}
-                />
-              </div>
-            </Tooltip>
-          </Row>
-        </Column>
-      </div>
+      <Iframe preview={preview} style={$iframePresets[preset]} />
+      {data.outputValue && !hideValue ? (
+        <div style={Object.assign({ position: 'absolute' }, $iframePresets[preset])}>
+          <Column fullY>
+            <Row style={{ flex: 1 }} />
+            <Row fullX justifyEnd mb="sm">
+              <Tooltip
+                title={`The UTXO containing this inscription has ${data.outputValue} sats`}
+                overlayStyle={{
+                  fontSize: fontSizes.xs
+                }}>
+                <div>
+                  <Text
+                    text={valueText}
+                    size="xs"
+                    style={{
+                      backgroundColor: 'rgba(255,255,255,0.2)',
+                      padding: 2,
+                      borderRadius: 5,
+                      paddingLeft: 4,
+                      paddingRight: 4,
+                      marginRight: 2
+                    }}
+                  />
+                </div>
+              </Tooltip>
+            </Row>
+          </Column>
+        </div>
+      ) : null}
       <Column px="md" py="sm" gap="zero" bg="bg4" full>
-        <Text text={numberStr} color="gold" size={$numberPresets[preset] as any} />
-        {isUnconfirmed == false && <Text text={time} preset="sub" size={$timePresets[preset] as any} />}
+        <Text text={numberStr} color="gold" size={$numberPresets[preset] as any} max1Lines />
+        {isUnconfirmed == false && data.timestamp && (
+          <Text text={time} preset="sub" size={$timePresets[preset] as any} />
+        )}
       </Column>
     </Column>
   );

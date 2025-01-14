@@ -102,7 +102,7 @@ const config = (env) => {
               'primary-color': 'rgb(234,202,68)',
               'primary-color-active': '#383535',
               'input-icon-hover-color': '#FFFFFF',
-              'component-background': '#1C1919',
+              'component-background': '#070606',
               'select-dropdown-bg': '#2A2626',
               'select-item-selected-bg': '#332F2F',
               'select-item-active-bg': '#332F2F',
@@ -510,8 +510,13 @@ const config = (env) => {
       plugins: [new TSConfigPathsPlugin()],
       fallback: {
         stream: require.resolve('stream-browserify'),
-        crypto: require.resolve('crypto-browserify')
-        // buffer: require.resolve('buffer/')
+        crypto: require.resolve('crypto-browserify'),
+        process: require.resolve('process/browser'),
+        events: require.resolve('events/'),
+        zlib: require.resolve('browserify-zlib'),
+        http: require.resolve('stream-http'),
+        https: require.resolve('https-browserify'),
+        buffer: require.resolve('buffer/')
       },
       extensions: ['.js', 'jsx', '.ts', '.tsx']
     },

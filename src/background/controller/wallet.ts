@@ -12,16 +12,22 @@ import { DisplayedKeyring, Keyring } from '@/background/service/keyring';
 import {
   ADDRESS_TYPES,
   AddressFlagType,
+  AUTO_LOCKTIMES,
   BRAND_ALIAN_TYPE_TEXT,
   CHAINS_ENUM,
+  CHAINS_MAP,
+  ChainType,
   COIN_NAME,
   COIN_SYMBOL,
+  DEFAULT_LOCKTIME_ID,
+  EVENTS,
   KEYRING_TYPE,
   KEYRING_TYPES,
   NETWORK_TYPES,
-  OPENAPI_URL_MAINNET,
-  OPENAPI_URL_TESTNET
+  UNCONFIRMED_HEIGHT
 } from '@/shared/constant';
+import eventBus from '@/shared/eventBus';
+import { runesUtils } from '@/shared/lib/runes-utils';
 import {
   Account,
   AddressType,
@@ -34,11 +40,16 @@ import {
   UTXO,
   WalletKeyring
 } from '@/shared/types';
-import { checkAddressFlag } from '@/shared/utils';
-import { UnspentOutput, txHelpers } from '@unisat/wallet-sdk';
-import { publicKeyToAddress, scriptPkToAddress } from '@unisat/wallet-sdk/lib/address';
-import { ECPair, bitcoin } from '@unisat/wallet-sdk/lib/bitcoin-core';
-import { signMessageOfBIP322Simple } from '@unisat/wallet-sdk/lib/message';
+import { checkAddressFlag, getChainInfo } from '@/shared/utils';
+import { txHelpers, UnspentOutput, UTXO_DUST } from '@unisat/wallet-sdk';
+import { isValidAddress, publicKeyToAddress, scriptPkToAddress } from '@unisat/wallet-sdk/lib/address';
+import { bitcoin, ECPair } from '@unisat/wallet-sdk/lib/bitcoin-core';
+import { KeystoneKeyring } from '@unisat/wallet-sdk/lib/keyring';
+import {
+  genPsbtOfBIP322Simple,
+  getSignatureFromPsbtOfBIP322Simple,
+  signMessageOfBIP322Simple
+} from '@unisat/wallet-sdk/lib/message';
 import { toPsbtNetwork } from '@unisat/wallet-sdk/lib/network';
 import { getAddressUtxoDust } from '@unisat/wallet-sdk/lib/transaction';
 import { toXOnly } from '@unisat/wallet-sdk/lib/utils';
@@ -58,6 +69,8 @@ export type AccountAsset = {
 
 export class WalletController extends BaseController {
   openapi: OpenApiService = openapiService;
+
+  timer: any = null;
 
   /* wallet */
   boot = (password: string) => keyringService.boot(password);
@@ -107,6 +120,8 @@ export class WalletController extends BaseController {
     if (!alianNameInited && alianNames.length === 0) {
       this.initAlianNames();
     }
+
+    this._resetTimeout();
   };
   isUnlocked = () => {
     return keyringService.memStore.getState().isUnlocked;
@@ -116,6 +131,10 @@ export class WalletController extends BaseController {
     await keyringService.setLocked();
     sessionService.broadcastEvent('accountsChanged', []);
     sessionService.broadcastEvent('lock');
+    eventBus.emit(EVENTS.broadcastToUI, {
+      method: 'lock',
+      params: {}
+    });
   };
 
   setPopupOpen = (isOpen: boolean) => {
@@ -132,7 +151,7 @@ export class WalletController extends BaseController {
     return openapiService.getMultiAddressAssets(addresses);
   };
 
-  findGroupAssets = (groups: { type: number; address_arr: string[] }[]) => {
+  findGroupAssets = (groups: { type: number; address_arr: string[]; pubkey_arr: string[] }[]) => {
     return openapiService.findGroupAssets(groups);
   };
 
@@ -153,11 +172,12 @@ export class WalletController extends BaseController {
     return preferenceService.getAddressBalance(address) || defaultBalance;
   };
 
-  getAddressHistory = async (address: string) => {
-    // const data = await openapiService.getAddressRecentHistory(address);
+  getAddressHistory = async (params: { address: string; start: number; limit: number }) => {
+    const data = await openapiService.getAddressRecentHistory(params);
     // preferenceService.updateAddressHistory(address, data);
     // return data;
     //   todo
+    return data;
   };
 
   getAddressInscriptions = async (address: string, cursor: number, size: number) => {
@@ -303,6 +323,67 @@ export class WalletController extends BaseController {
     return this.displayedKeyringToWalletKeyring(displayedKeyring, -1, false);
   };
 
+  createTmpKeyringWithKeystone = async (
+    urType: string,
+    urCbor: string,
+    addressType: AddressType,
+    hdPath: string,
+    accountCount: number
+  ) => {
+    const tmpKeyring = new KeystoneKeyring();
+    await tmpKeyring.initFromUR(urType, urCbor);
+    if (hdPath.length >= 13) {
+      tmpKeyring.changeChangeAddressHdPath(hdPath);
+      tmpKeyring.addAccounts(accountCount);
+    } else {
+      tmpKeyring.changeHdPath(ADDRESS_TYPES[addressType].hdPath);
+      accountCount && tmpKeyring.addAccounts(accountCount);
+    }
+
+    const opts = await tmpKeyring.serialize();
+    const originKeyring = keyringService.createTmpKeyring(KEYRING_TYPE.KeystoneKeyring, opts);
+    const displayedKeyring = await keyringService.displayForKeyring(originKeyring, addressType, -1);
+    preferenceService.setShowSafeNotice(false);
+    return this.displayedKeyringToWalletKeyring(displayedKeyring, -1, false);
+  };
+
+  createKeyringWithKeystone = async (
+    urType: string,
+    urCbor: string,
+    addressType: AddressType,
+    hdPath: string,
+    accountCount = 1,
+    filterPubkey: string[] = [],
+    connectionType: 'USB' | 'QR' = 'USB'
+  ) => {
+    const originKeyring = await keyringService.createKeyringWithKeystone(
+      urType,
+      urCbor,
+      addressType,
+      hdPath,
+      accountCount,
+      connectionType
+    );
+
+    if (filterPubkey !== null && filterPubkey !== undefined && filterPubkey.length > 0) {
+      const accounts = await originKeyring.getAccounts();
+      accounts.forEach((account) => {
+        if (!filterPubkey.includes(account)) {
+          originKeyring.removeAccount(account);
+        }
+      });
+    }
+    const account = await originKeyring.getAccounts();
+    const displayedKeyring = await keyringService.displayForKeyring(
+      originKeyring,
+      addressType,
+      keyringService.keyrings.length - 1
+    );
+    const keyring = this.displayedKeyringToWalletKeyring(displayedKeyring, keyringService.keyrings.length - 1);
+    this.changeKeyring(keyring);
+    preferenceService.setShowSafeNotice(false);
+  };
+
   removeKeyring = async (keyring: WalletKeyring) => {
     await keyringService.removeKeyring(keyring.index);
     const keyrings = await this.getKeyrings();
@@ -344,7 +425,7 @@ export class WalletController extends BaseController {
     const networkType = this.getNetworkType();
     const addresses: string[] = [];
     const _keyring = keyringService.keyrings[keyring.index];
-    if (keyring.type === KEYRING_TYPE.HdKeyring) {
+    if (keyring.type === KEYRING_TYPE.HdKeyring || keyring.type === KEYRING_TYPE.KeystoneKeyring) {
       const pathPubkey: { [path: string]: string } = {};
       ADDRESS_TYPES.filter((v) => v.displayIndex >= 0).forEach((v) => {
         let pubkey = pathPubkey[v.hdPath];
@@ -408,11 +489,21 @@ export class WalletController extends BaseController {
         const sighashTypes = input.sighashTypes?.map(Number);
         if (sighashTypes?.some(isNaN)) throw new Error('invalid sighash type in toSignInput');
 
+        let tapLeafHashToSign: Buffer | undefined;
+        if (input.tapLeafHashToSign) {
+          if (typeof input.tapLeafHashToSign === 'string') {
+            tapLeafHashToSign = Buffer.from(input.tapLeafHashToSign, 'hex');
+          } else {
+            tapLeafHashToSign = input.tapLeafHashToSign;
+          }
+        }
         return {
           index,
           publicKey: account.pubkey,
           sighashTypes,
-          disableTweakSigner: input.disableTweakSigner
+          useTweakedSigner: input.useTweakedSigner,
+          disableTweakSigner: input.disableTweakSigner,
+          tapLeafHashToSign
         };
       });
     } else {
@@ -467,7 +558,7 @@ export class WalletController extends BaseController {
       toSignInputs = await this.formatOptionsToSignInputs(psbt);
       if (autoFinalized !== false) autoFinalized = true;
     }
-    psbt.data.inputs.forEach((v, index) => {
+    psbt.data.inputs.forEach((v) => {
       const isNotSigned = !(v.finalScriptSig || v.finalScriptWitness);
       const isP2TR = keyring.addressType === AddressType.P2TR || keyring.addressType === AddressType.M44_P2TR;
       const lostInternalPubkey = !v.tapInternalKey;
@@ -483,6 +574,33 @@ export class WalletController extends BaseController {
         }
       }
     });
+
+    if (keyring.type === KEYRING_TYPE.KeystoneKeyring) {
+      if (!_keyring.mfp) {
+        throw new Error('no mfp in keyring');
+      }
+      toSignInputs.forEach((input) => {
+        const isP2TR = keyring.addressType === AddressType.P2TR || keyring.addressType === AddressType.M44_P2TR;
+        const bip32Derivation = {
+          masterFingerprint: Buffer.from(_keyring.mfp as string, 'hex'),
+          path: `${keyring.hdPath}/${account.index}`,
+          pubkey: Buffer.from(account.pubkey, 'hex')
+        };
+        if (isP2TR) {
+          psbt.data.inputs[input.index].tapBip32Derivation = [
+            {
+              ...bip32Derivation,
+              pubkey: bip32Derivation.pubkey.slice(1),
+              leafHashes: []
+            }
+          ];
+        } else {
+          psbt.data.inputs[input.index].bip32Derivation = [bip32Derivation];
+        }
+      });
+      return psbt;
+    }
+
     psbt = await keyringService.signTransaction(_keyring, psbt, toSignInputs);
     if (autoFinalized) {
       toSignInputs.forEach((v) => {
@@ -493,10 +611,16 @@ export class WalletController extends BaseController {
     return psbt;
   };
 
+  signPsbtWithHex = async (psbtHex: string, toSignInputs: ToSignInput[], autoFinalized: boolean) => {
+    const psbt = bitcoin.Psbt.fromHex(psbtHex);
+    await this.signPsbt(psbt, toSignInputs, autoFinalized);
+    return psbt.toHex();
+  };
+
   signMessage = async (text: string) => {
     const account = preferenceService.getCurrentAccount();
     if (!account) throw new Error('no current account');
-    return keyringService.signMessage(account.pubkey, text);
+    return keyringService.signMessage(account.pubkey, account.type, text);
   };
 
   signBIP322Simple = async (text: string) => {
@@ -635,31 +759,56 @@ export class WalletController extends BaseController {
   };
 
   getNetworkType = () => {
-    const networkType = preferenceService.getNetworkType();
-    return networkType;
+    const chainType = this.getChainType();
+    return CHAINS_MAP[chainType].networkType;
   };
 
   setNetworkType = async (networkType: NetworkType) => {
-    preferenceService.setNetworkType(networkType);
     if (networkType === NetworkType.MAINNET) {
-      this.openapi.setHost(OPENAPI_URL_MAINNET);
+      this.setChainType(ChainType.BITCOIN_MAINNET);
     } else {
-      this.openapi.setHost(OPENAPI_URL_TESTNET);
+      this.setChainType(ChainType.BITCOIN_TESTNET);
     }
-    const network = this.getNetworkName();
-    sessionService.broadcastEvent('networkChanged', {
-      network
-    });
+  };
+
+  getNetworkName = () => {
+    const networkType = this.getNetworkType();
+    return NETWORK_TYPES[networkType].name;
+  };
+
+  getLegacyNetworkName = () => {
+    const chainType = this.getChainType();
+    if (
+      chainType === ChainType.BITCOIN_MAINNET ||
+      chainType === ChainType.BITCOIN_TESTNET ||
+      chainType === ChainType.BITCOIN_TESTNET4
+    ) {
+      return NETWORK_TYPES[CHAINS_MAP[chainType].networkType].name;
+    } else {
+      return 'unknown';
+    }
+  };
+
+  setChainType = async (chainType: ChainType) => {
+    preferenceService.setChainType(chainType);
+    this.openapi.setEndpoints(CHAINS_MAP[chainType].endpoints);
 
     const currentAccount = await this.getCurrentAccount();
     const keyring = await this.getCurrentKeyring();
     if (!keyring) throw new Error('no current keyring');
     this.changeKeyring(keyring, currentAccount?.index);
+
+    const chainInfo = getChainInfo(chainType);
+    sessionService.broadcastEvent('chainChanged', chainInfo);
+
+    const network = this.getLegacyNetworkName();
+    sessionService.broadcastEvent('networkChanged', {
+      network
+    });
   };
 
-  getNetworkName = () => {
-    const networkType = preferenceService.getNetworkType();
-    return NETWORK_TYPES[networkType].name;
+  getChainType = () => {
+    return preferenceService.getChainType();
   };
 
   getBTCUtxos = async () => {
@@ -669,8 +818,8 @@ export class WalletController extends BaseController {
 
     let utxos = await openapiService.getBTCUtxos(account.address);
 
-    if (openapiService.addressFlag == 1) {
-      utxos = utxos.filter((v) => (v as any).height !== 4194303);
+    if (checkAddressFlag(openapiService.addressFlag, AddressFlagType.CONFIRMED_UTXO_MODE)) {
+      utxos = utxos.filter((v) => (v as any).height !== UNCONFIRMED_HEIGHT);
     }
 
     const btcUtxos = utxos.map((v) => {
@@ -686,6 +835,25 @@ export class WalletController extends BaseController {
       };
     });
     return btcUtxos;
+  };
+
+  getUnavailableUtxos = async () => {
+    const account = preferenceService.getCurrentAccount();
+    if (!account) throw new Error('no current account');
+    const utxos = await openapiService.getUnavailableUtxos(account.address);
+    const unavailableUtxos = utxos.map((v) => {
+      return {
+        txid: v.txid,
+        vout: v.vout,
+        satoshis: v.satoshis,
+        scriptPk: v.scriptPk,
+        addressType: v.addressType,
+        pubkey: account.pubkey,
+        inscriptions: v.inscriptions,
+        atomicals: v.atomicals
+      };
+    });
+    return unavailableUtxos;
   };
 
   getAssetUtxosAtomicalsFT = async (ticker: string) => {
@@ -706,7 +874,8 @@ export class WalletController extends BaseController {
     feeRate,
     enableRBF,
     btcUtxos,
-    memo
+    memo,
+    memos
   }: {
     to: string;
     amount: number;
@@ -714,6 +883,7 @@ export class WalletController extends BaseController {
     enableRBF: boolean;
     btcUtxos?: UnspentOutput[];
     memo?: string;
+    memos?: string[];
   }) => {
     const account = preferenceService.getCurrentAccount();
     if (!account) throw new Error('no current account');
@@ -728,6 +898,10 @@ export class WalletController extends BaseController {
       throw new Error('Insufficient balance.');
     }
 
+    if (!isValidAddress(to, networkType)) {
+      throw new Error('Invalid address.');
+    }
+
     const { psbt, toSignInputs } = await txHelpers.sendBTC({
       btcUtxos: btcUtxos,
       tos: [{ address: to, satoshis: amount }],
@@ -735,7 +909,8 @@ export class WalletController extends BaseController {
       changeAddress: account.address,
       feeRate,
       enableRBF,
-      memo
+      memo,
+      memos
     });
 
     this.setPsbtSignNonSegwitEnable(psbt, true);
@@ -793,14 +968,14 @@ export class WalletController extends BaseController {
     to: string;
     inscriptionId: string;
     feeRate: number;
-    outputValue: number;
+    outputValue?: number;
     enableRBF: boolean;
     btcUtxos?: UnspentOutput[];
   }) => {
     const account = preferenceService.getCurrentAccount();
     if (!account) throw new Error('no current account');
 
-    const networkType = preferenceService.getNetworkType();
+    const networkType = this.getNetworkType();
 
     const utxo = await openapiService.getInscriptionUtxo(inscriptionId);
     if (!utxo) {
@@ -828,7 +1003,7 @@ export class WalletController extends BaseController {
       networkType,
       changeAddress: account.address,
       feeRate,
-      outputValue,
+      outputValue: outputValue || assetUtxo.satoshis,
       enableRBF,
       enableMixed: true
     });
@@ -856,7 +1031,7 @@ export class WalletController extends BaseController {
     const account = preferenceService.getCurrentAccount();
     if (!account) throw new Error('no current account');
 
-    const networkType = preferenceService.getNetworkType();
+    const networkType = this.getNetworkType();
 
     const inscription_utxos = await openapiService.getInscriptionUtxos(inscriptionIds);
     if (!inscription_utxos) {
@@ -921,7 +1096,7 @@ export class WalletController extends BaseController {
     const account = preferenceService.getCurrentAccount();
     if (!account) throw new Error('no current account');
 
-    const networkType = preferenceService.getNetworkType();
+    const networkType = this.getNetworkType();
 
     const utxo = await openapiService.getInscriptionUtxo(inscriptionId);
     if (!utxo) {
@@ -965,7 +1140,7 @@ export class WalletController extends BaseController {
   };
 
   displayedKeyringToWalletKeyring = (displayedKeyring: DisplayedKeyring, index: number, initName = true) => {
-    const networkType = preferenceService.getNetworkType();
+    const networkType = this.getNetworkType();
     const addressType = displayedKeyring.addressType;
     const key = 'keyring_' + index;
     const type = displayedKeyring.type;
@@ -987,7 +1162,8 @@ export class WalletController extends BaseController {
         flag
       });
     }
-    const hdPath = type === KEYRING_TYPE.HdKeyring ? displayedKeyring.keyring.hdPath : '';
+    const hdPath =
+      type === KEYRING_TYPE.HdKeyring || type === KEYRING_TYPE.KeystoneKeyring ? displayedKeyring.keyring.hdPath : '';
     const alianName = preferenceService.getKeyringAlianName(
       key,
       initName ? `${KEYRING_TYPES[type].alianName} #${index + 1}` : ''
@@ -1073,6 +1249,7 @@ export class WalletController extends BaseController {
       currentAccount.flag = preferenceService.getAddressFlag(currentAccount.address);
       openapiService.setClientAddress(currentAccount.address, currentAccount.flag);
     }
+
     return currentAccount;
   };
 
@@ -1182,7 +1359,7 @@ export class WalletController extends BaseController {
   setSite = (data: ConnectedSite) => {
     permissionService.setSite(data);
     if (data.isConnected) {
-      const network = this.getNetworkName();
+      const network = this.getLegacyNetworkName();
       sessionService.broadcastEvent(
         'networkChanged',
         {
@@ -1194,7 +1371,7 @@ export class WalletController extends BaseController {
   };
   updateConnectSite = (origin: string, data: ConnectedSite) => {
     permissionService.updateConnectSite(origin, data);
-    const network = this.getNetworkName();
+    const network = this.getLegacyNetworkName();
     sessionService.broadcastEvent(
       'networkChanged',
       {
@@ -1241,6 +1418,22 @@ export class WalletController extends BaseController {
     return openapiService.getFeeSummary();
   };
 
+  getCoinPrice = async () => {
+    return openapiService.getCoinPrice();
+  };
+
+  getBrc20sPrice = async (ticks: string[]) => {
+    return openapiService.getBrc20sPrice(ticks);
+  };
+
+  getRunesPrice = async (ticks: string[]) => {
+    return openapiService.getRunesPrice(ticks);
+  };
+
+  getCAT20sPrice = async (tokenIds: string[]) => {
+    return openapiService.getCAT20sPrice(tokenIds);
+  };
+
   inscribeBRC20Transfer = (address: string, tick: string, amount: string, feeRate: number, outputValue: number) => {
     return openapiService.inscribeBRC20Transfer(address, tick, amount, feeRate, outputValue);
   };
@@ -1249,8 +1442,8 @@ export class WalletController extends BaseController {
     return openapiService.getInscribeResult(orderId);
   };
 
-  decodePsbt = (psbtHex: string) => {
-    return openapiService.decodePsbt(psbtHex);
+  decodePsbt = (psbtHex: string, website: string) => {
+    return openapiService.decodePsbt(psbtHex, website);
   };
 
   getBRC20List = async (address: string, currentPage: number, pageSize: number) => {
@@ -1269,6 +1462,19 @@ export class WalletController extends BaseController {
       total,
       list
     };
+    return {
+      currentPage,
+      pageSize,
+      total,
+      list
+    };
+  };
+
+  getBRC20List5Byte = async (address: string, currentPage: number, pageSize: number) => {
+    const cursor = (currentPage - 1) * pageSize;
+    const size = pageSize;
+    const { total, list } = await openapiService.getBRC20List5Byte(address, cursor, size);
+
     return {
       currentPage,
       pageSize,
@@ -1343,10 +1549,6 @@ export class WalletController extends BaseController {
     return preferenceService.expireUICachedData(address);
   };
 
-  createMoonpayUrl = (address: string) => {
-    return openapiService.createMoonpayUrl(address);
-  };
-
   getWalletConfig = () => {
     return openapiService.getWalletConfig();
   };
@@ -1371,6 +1573,14 @@ export class WalletController extends BaseController {
     const utxo = await openapiService.getInscriptionUtxo(inscriptionId);
     if (!utxo) {
       throw new Error('UTXO not found.');
+    }
+    return utxo;
+  };
+
+  getInscriptionInfo = async (inscriptionId: string) => {
+    const utxo = await openapiService.getInscriptionInfo(inscriptionId);
+    if (!utxo) {
+      throw new Error('Inscription not found.');
     }
     return utxo;
   };
@@ -1435,7 +1645,7 @@ export class WalletController extends BaseController {
     const account = preferenceService.getCurrentAccount();
     if (!account) throw new Error('no current account');
 
-    const networkType = preferenceService.getNetworkType();
+    const networkType = this.getNetworkType();
 
     const utxo = await openapiService.getAtomicalsUtxo(atomicalId);
     if (!utxo) {
@@ -1492,7 +1702,7 @@ export class WalletController extends BaseController {
     const account = preferenceService.getCurrentAccount();
     if (!account) throw new Error('no current account');
 
-    const networkType = preferenceService.getNetworkType();
+    const networkType = this.getNetworkType();
 
     if (!assetUtxos) {
       assetUtxos = await this.getAssetUtxosAtomicalsFT(ticker);
@@ -1509,7 +1719,7 @@ export class WalletController extends BaseController {
     let change = 0;
     for (let i = 0; i < assetUtxos.length; i++) {
       const v = assetUtxos[i];
-      total += v.satoshis;
+      total += v.atomicals.reduce((p, c) => p + (c?.atomicalValue || 0), 0);
       _assetUtxos.push(v);
       if (total >= amount) {
         change = total - amount;
@@ -1572,12 +1782,402 @@ export class WalletController extends BaseController {
     return checkAddressFlag(current?.flag, AddressFlagType.Is_Enable_Atomicals);
   };
 
+  checkKeyringMethod = async (method: string) => {
+    const account = await this.getCurrentAccount();
+    if (!account) throw new Error('no current account');
+    const keyring = await keyringService.getKeyringForAccount(account.pubkey);
+    if (!keyring) {
+      throw new Error('keyring does not exist');
+    }
+    if (!keyring[method]) {
+      throw new Error(`keyring does not have ${method} method`);
+    }
+    return { account, keyring };
+  };
+
+  // Keystone related functions
+  // genSignPsbtUr, parseSignPsbtUr, genSignMsgUr, parseSignMsgUr, getKeystoneConnectionType
+  genSignPsbtUr = async (psbtHex: string) => {
+    const { keyring } = await this.checkKeyringMethod('genSignPsbtUr');
+    return await keyring.genSignPsbtUr!(psbtHex);
+  };
+
+  parseSignPsbtUr = async (type: string, cbor: string, isFinalize = true) => {
+    const { keyring } = await this.checkKeyringMethod('parseSignPsbtUr');
+    const psbtHex = await keyring.parseSignPsbtUr!(type, cbor);
+    const psbt = bitcoin.Psbt.fromHex(psbtHex);
+    isFinalize && psbt.finalizeAllInputs();
+    return {
+      psbtHex: psbt.toHex(),
+      rawtx: isFinalize ? psbt.extractTransaction().toHex() : undefined
+    };
+  };
+
+  genSignMsgUr = async (text: string, msgType?: string) => {
+    if (msgType === 'bip322-simple') {
+      const account = await this.getCurrentAccount();
+      if (!account) throw new Error('no current account');
+      const psbt = genPsbtOfBIP322Simple({
+        message: text,
+        address: account.address,
+        networkType: this.getNetworkType()
+      });
+      const toSignInputs = await this.formatOptionsToSignInputs(psbt);
+      await this.signPsbt(psbt, toSignInputs, false);
+      return await this.genSignPsbtUr(psbt.toHex());
+    }
+    const { account, keyring } = await this.checkKeyringMethod('genSignMsgUr');
+    return await keyring.genSignMsgUr!(account.pubkey, text);
+  };
+
+  parseSignMsgUr = async (type: string, cbor: string, msgType: string) => {
+    if (msgType === 'bip322-simple') {
+      const res = await this.parseSignPsbtUr(type, cbor, false);
+      const psbt = bitcoin.Psbt.fromHex(res.psbtHex);
+      psbt.finalizeAllInputs();
+      return {
+        signature: getSignatureFromPsbtOfBIP322Simple(psbt)
+      };
+    }
+    const { keyring } = await this.checkKeyringMethod('parseSignMsgUr');
+    const sig = await keyring.parseSignMsgUr!(type, cbor);
+    sig.signature = Buffer.from(sig.signature, 'hex').toString('base64');
+    return sig;
+  };
+
+  getKeystoneConnectionType = async () => {
+    const { keyring } = await this.checkKeyringMethod('getConnectionType');
+    return keyring.getConnectionType!();
+  };
+
   getEnableSignData = async () => {
     return preferenceService.getEnableSignData();
   };
 
   setEnableSignData = async (enable: boolean) => {
     return preferenceService.setEnableSignData(enable);
+  };
+
+  getRunesList = async (address: string, currentPage: number, pageSize: number) => {
+    const cursor = (currentPage - 1) * pageSize;
+    const size = pageSize;
+    const { total, list } = await openapiService.getRunesList(address, cursor, size);
+
+    return {
+      currentPage,
+      pageSize,
+      total,
+      list
+    };
+  };
+
+  getAssetUtxosRunes = async (runeid: string) => {
+    const account = preferenceService.getCurrentAccount();
+    if (!account) throw new Error('no current account');
+    const runes_utxos = await openapiService.getRunesUtxos(account.address, runeid);
+
+    const assetUtxos = runes_utxos.map((v) => {
+      return Object.assign(v, { pubkey: account.pubkey });
+    });
+
+    assetUtxos.forEach((v) => {
+      v.inscriptions = [];
+      v.atomicals = [];
+    });
+
+    assetUtxos.sort((a, b) => {
+      const bAmount = b.runes.find((v) => v.runeid == runeid)?.amount || '0';
+      const aAmount = a.runes.find((v) => v.runeid == runeid)?.amount || '0';
+      return runesUtils.compareAmount(bAmount, aAmount);
+    });
+
+    return assetUtxos;
+  };
+
+  getAddressRunesTokenSummary = async (address: string, runeid: string) => {
+    const tokenSummary = await openapiService.getAddressRunesTokenSummary(address, runeid);
+    return tokenSummary;
+  };
+
+  sendRunes = async ({
+    to,
+    runeid,
+    runeAmount,
+    feeRate,
+    enableRBF,
+    btcUtxos,
+    assetUtxos,
+    outputValue
+  }: {
+    to: string;
+    runeid: string;
+    runeAmount: string;
+    feeRate: number;
+    enableRBF: boolean;
+    btcUtxos?: UnspentOutput[];
+    assetUtxos?: UnspentOutput[];
+    outputValue?: number;
+  }) => {
+    const account = preferenceService.getCurrentAccount();
+    if (!account) throw new Error('no current account');
+
+    const networkType = this.getNetworkType();
+
+    if (!assetUtxos) {
+      assetUtxos = await this.getAssetUtxosRunes(runeid);
+    }
+
+    const _assetUtxos: UnspentOutput[] = [];
+
+    // find the utxo that has the exact amount to split
+    for (let i = 0; i < assetUtxos.length; i++) {
+      const v = assetUtxos[i];
+      if (v.runes && v.runes.length > 1) {
+        const balance = v.runes.find((r) => r.runeid == runeid);
+        if (balance && balance.amount == runeAmount) {
+          _assetUtxos.push(v);
+          break;
+        }
+      }
+    }
+
+    if (_assetUtxos.length == 0) {
+      for (let i = 0; i < assetUtxos.length; i++) {
+        const v = assetUtxos[i];
+        if (v.runes) {
+          const balance = v.runes.find((r) => r.runeid == runeid);
+          if (balance && balance.amount == runeAmount) {
+            _assetUtxos.push(v);
+            break;
+          }
+        }
+      }
+    }
+
+    if (_assetUtxos.length == 0) {
+      let total = BigInt(0);
+      for (let i = 0; i < assetUtxos.length; i++) {
+        const v = assetUtxos[i];
+        v.runes?.forEach((r) => {
+          if (r.runeid == runeid) {
+            total = total + BigInt(r.amount);
+          }
+        });
+        _assetUtxos.push(v);
+        if (total >= BigInt(runeAmount)) {
+          break;
+        }
+      }
+    }
+
+    assetUtxos = _assetUtxos;
+
+    if (!btcUtxos) {
+      btcUtxos = await this.getBTCUtxos();
+    }
+
+    const { psbt, toSignInputs } = await txHelpers.sendRunes({
+      assetUtxos,
+      assetAddress: account.address,
+      btcUtxos,
+      btcAddress: account.address,
+      toAddress: to,
+      networkType,
+      feeRate,
+      enableRBF,
+      runeid,
+      runeAmount,
+      outputValue: outputValue || UTXO_DUST
+    });
+
+    this.setPsbtSignNonSegwitEnable(psbt, true);
+    await this.signPsbt(psbt, toSignInputs, true);
+    this.setPsbtSignNonSegwitEnable(psbt, false);
+
+    return psbt.toHex();
+  };
+
+  getAutoLockTimeId = () => {
+    return preferenceService.getAutoLockTimeId();
+  };
+
+  setAutoLockTimeId = (timeId: number) => {
+    preferenceService.setAutoLockTimeId(timeId);
+    this._resetTimeout();
+  };
+
+  setLastActiveTime = () => {
+    this._resetTimeout();
+  };
+
+  _resetTimeout = async () => {
+    if (this.timer) {
+      clearTimeout(this.timer);
+    }
+
+    const timeId = preferenceService.getAutoLockTimeId();
+    const timeConfig = AUTO_LOCKTIMES[timeId] || AUTO_LOCKTIMES[DEFAULT_LOCKTIME_ID];
+    this.timer = setTimeout(() => {
+      this.lockWallet();
+    }, timeConfig.time);
+  };
+
+  getCAT20List = async (address: string, currentPage: number, pageSize: number) => {
+    const cursor = (currentPage - 1) * pageSize;
+    const size = pageSize;
+    const { total, list } = await openapiService.getCAT20List(address, cursor, size);
+
+    return {
+      currentPage,
+      pageSize,
+      total,
+      list
+    };
+  };
+
+  getAddressCAT20TokenSummary = async (address: string, tokenId: string) => {
+    const tokenSummary = await openapiService.getAddressCAT20TokenSummary(address, tokenId);
+    return tokenSummary;
+  };
+
+  getAddressCAT20UtxoSummary = async (address: string, tokenId: string) => {
+    const tokenSummary = await openapiService.getAddressCAT20UtxoSummary(address, tokenId);
+    return tokenSummary;
+  };
+
+  transferCAT20Step1ByMerge = async (mergeId: string) => {
+    return await openapiService.transferCAT20Step1ByMerge(mergeId);
+  };
+
+  transferCAT20Step1 = async (to: string, tokenId: string, tokenAmount: string, feeRate: number) => {
+    const currentAccount = await this.getCurrentAccount();
+    if (!currentAccount) {
+      return;
+    }
+
+    const _res = await openapiService.transferCAT20Step1(
+      currentAccount.address,
+      currentAccount.pubkey,
+      to,
+      tokenId,
+      tokenAmount,
+      feeRate
+    );
+    return _res;
+  };
+
+  transferCAT20Step2 = async (transferId: string, commitTx: string, toSignInputs: ToSignInput[]) => {
+    const networkType = this.getNetworkType();
+    const psbtNetwork = toPsbtNetwork(networkType);
+    const psbt = bitcoin.Psbt.fromBase64(commitTx, { network: psbtNetwork });
+    await this.signPsbt(psbt, toSignInputs, true);
+    const _res = await openapiService.transferCAT20Step2(transferId, psbt.toBase64());
+    return _res;
+  };
+
+  transferCAT20Step3 = async (transferId: string, revealTx: string, toSignInputs: ToSignInput[]) => {
+    const networkType = this.getNetworkType();
+    const psbtNetwork = toPsbtNetwork(networkType);
+    const psbt = bitcoin.Psbt.fromBase64(revealTx, { network: psbtNetwork });
+    await this.signPsbt(psbt, toSignInputs, false);
+    const _res = await openapiService.transferCAT20Step3(transferId, psbt.toBase64());
+    return _res;
+  };
+
+  mergeCAT20Prepare = async (tokenId: string, utxoCount: number, feeRate: number) => {
+    const currentAccount = await this.getCurrentAccount();
+    if (!currentAccount) {
+      return;
+    }
+
+    const _res = await openapiService.mergeCAT20Prepare(
+      currentAccount.address,
+      currentAccount.pubkey,
+      tokenId,
+      utxoCount,
+      feeRate
+    );
+    return _res;
+  };
+
+  getMergeCAT20Status = async (mergeId: string) => {
+    const _res = await openapiService.getMergeCAT20Status(mergeId);
+    return _res;
+  };
+
+  getAppList = async () => {
+    const data = await openapiService.getAppList();
+    return data;
+  };
+
+  getBannerList = async () => {
+    const data = await openapiService.getBannerList();
+    return data;
+  };
+
+  getBlockActiveInfo = () => {
+    return openapiService.getBlockActiveInfo();
+  };
+
+  getCAT721List = async (address: string, currentPage: number, pageSize: number) => {
+    const cursor = (currentPage - 1) * pageSize;
+    const size = pageSize;
+    const { total, list } = await openapiService.getCAT721CollectionList(address, cursor, size);
+
+    return {
+      currentPage,
+      pageSize,
+      total,
+      list
+    };
+  };
+
+  getAddressCAT721CollectionSummary = async (address: string, collectionId: string) => {
+    const collectionSummary = await openapiService.getAddressCAT721CollectionSummary(address, collectionId);
+    return collectionSummary;
+  };
+
+  transferCAT721Step1 = async (to: string, collectionId: string, localId: string, feeRate: number) => {
+    const currentAccount = await this.getCurrentAccount();
+    if (!currentAccount) {
+      return;
+    }
+
+    const _res = await openapiService.transferCAT721Step1(
+      currentAccount.address,
+      currentAccount.pubkey,
+      to,
+      collectionId,
+      localId,
+      feeRate
+    );
+    return _res;
+  };
+
+  transferCAT721Step2 = async (transferId: string, commitTx: string, toSignInputs: ToSignInput[]) => {
+    const networkType = this.getNetworkType();
+    const psbtNetwork = toPsbtNetwork(networkType);
+    const psbt = bitcoin.Psbt.fromBase64(commitTx, { network: psbtNetwork });
+    await this.signPsbt(psbt, toSignInputs, true);
+    const _res = await openapiService.transferCAT721Step2(transferId, psbt.toBase64());
+    return _res;
+  };
+
+  transferCAT721Step3 = async (transferId: string, revealTx: string, toSignInputs: ToSignInput[]) => {
+    const networkType = this.getNetworkType();
+    const psbtNetwork = toPsbtNetwork(networkType);
+    const psbt = bitcoin.Psbt.fromBase64(revealTx, { network: psbtNetwork });
+    await this.signPsbt(psbt, toSignInputs, false);
+    const _res = await openapiService.transferCAT721Step3(transferId, psbt.toBase64());
+    return _res;
+  };
+
+  getBuyCoinChannelList = async (coin: 'FB' | 'BTC') => {
+    return openapiService.getBuyCoinChannelList(coin);
+  };
+
+  createBuyCoinPaymentUrl = (coin: 'FB' | 'BTC', address: string, channel: string) => {
+    return openapiService.createBuyCoinPaymentUrl(coin, address, channel);
   };
 }
 

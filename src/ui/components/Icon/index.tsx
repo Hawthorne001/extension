@@ -8,14 +8,16 @@ export const svgRegistry = {
   send: './images/icons/arrow-left-right.svg',
   receive: './images/icons/qrcode.svg',
 
-  right: './images/icons/arrow-right.svg',
+  right: './images/icons/right.svg',
   left: './images/icons/arrow-left.svg',
   down: './images/icons/down.svg',
+  up: './images/icons/up.svg',
   link: './images/icons/arrow-up-right.svg',
 
   discord: './images/icons/discord.svg',
   twitter: './images/icons/twitter.svg',
   github: './images/icons/github.svg',
+  telegram: './images/icons/telegram.svg',
 
   btc: './images/icons/btc.svg',
   qrcode: './images/icons/qrcode.svg',
@@ -44,7 +46,17 @@ export const svgRegistry = {
   atomicals: '/images/icons/atomicals.svg',
   info: '/images/icons/info.svg',
   warning: '/images/icons/warning.svg',
+  alert: '/images/icons/alert.svg',
+  burn: ' /images/icons/burn.svg',
+  risk: '/images/icons/risk.svg',
 
+  overview: '/images/icons/overview.svg',
+  merge: '/images/icons/merge.svg',
+  paused: '/images/icons/paused.svg',
+
+  unisat: './images/icons/unisat.svg',
+  gas: './images/icons/gas.svg',
+  fb: './images/icons/fb.svg'
 };
 
 const iconImgList: Array<IconTypes> = ['success', 'delete', 'btc'];
