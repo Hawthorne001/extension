@@ -85,7 +85,7 @@
     "identity-obj-proxy": "^3.0.0",
     "jest": "^27.4.3",
     "jest-resolve": "^27.4.2",
-    "jest-watch-typeahead": "^1.0.0",
+    "jest-watch-typeahead": "^3.0.0",
     "koa-compose": "^4.1.0",
     "lodash-es": "^4.17.21",
     "loglevel": "^1.8.0",
