@@ -68,7 +68,7 @@
     "antd-dayjs-webpack-plugin": "1.0.6",
     "assert": "^2.0.0",
     "babel-jest": "^27.4.2",
-    "babel-loader": "^8.2.3",
+    "babel-loader": "^10.0.0",
     "babel-plugin-named-asset-import": "^0.3.8",
     "babel-preset-react-app": "^10.0.1",
     "bech32": "^2.0.0",
